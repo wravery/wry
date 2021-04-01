@@ -20,6 +20,7 @@ use std::{
   mem,
   os::{raw::c_void, windows::ffi::OsStringExt},
   path::PathBuf,
+  ptr,
   rc::Rc,
   sync::atomic::{AtomicU32, Ordering},
 };
@@ -91,7 +92,7 @@ where
 
 extern "system" fn enumerate_callback(hwnd: HWND, lparam: LPARAM) -> BOOL {
   unsafe {
-    let closure: &mut &mut dyn FnMut(HWND) -> bool = mem::transmute(lparam.0 as *mut c_void);
+    let closure = &mut *(lparam.0 as windows::RawPtr as *mut &mut dyn FnMut(HWND) -> bool);
     closure(hwnd).into()
   }
 }
@@ -109,7 +110,7 @@ unsafe fn from_abi<I: Interface>(this: windows::RawPtr) -> windows::Result<I> {
 #[allow(non_camel_case_types)]
 #[repr(C)]
 struct DropTarget {
-  vtable: *const IDropTarget_vtable,
+  vtable: *const com::IDropTarget_abi,
   listener: Rc<FileDropHandler>,
   refcount: AtomicU32,
   window: HWND,
@@ -170,7 +171,7 @@ impl DropTarget {
     this: windows::RawPtr,
     pDataObj: windows::RawPtr,
     _grfKeyState: u32,
-    _pt: *const POINTL,
+    _pt: POINTL,
     pdwEffect: *mut u32,
   ) -> windows::ErrorCode {
     let mut paths = Vec::new();
@@ -197,7 +198,7 @@ impl DropTarget {
   pub unsafe extern "system" fn DragOver(
     this: windows::RawPtr,
     _grfKeyState: u32,
-    _pt: *const POINTL,
+    _pt: POINTL,
     pdwEffect: *mut u32,
   ) -> windows::ErrorCode {
     let drop_handler = Self::from_interface(this);
@@ -219,7 +220,7 @@ impl DropTarget {
     this: windows::RawPtr,
     pDataObj: windows::RawPtr,
     _grfKeyState: u32,
-    _pt: *const POINTL,
+    _pt: POINTL,
     _pdwEffect: *mut u32,
   ) -> windows::ErrorCode {
     let mut paths = Vec::new();
@@ -245,7 +246,7 @@ impl DropTarget {
   unsafe fn collect_paths(data_obj: &com::IDataObject, paths: &mut Vec<PathBuf>) -> Option<HDROP> {
     let mut drop_format = com::FORMATETC {
       cfFormat: CLIPBOARD_FORMATS::CF_HDROP.0 as u16,
-      ptd: 0 as *mut _,
+      ptd: ptr::null_mut(),
       dwAspect: DVASPECT::DVASPECT_CONTENT.0 as u32,
       lindex: -1,
       tymed: TYMED::TYMED_HGLOBAL.0 as u32,
@@ -258,13 +259,13 @@ impl DropTarget {
       let hdrop = HDROP(hglobal);
 
       // The second parameter (0xFFFFFFFF) instructs the function to return the item count
-      let item_count = shell::DragQueryFileW(hdrop, 0xFFFFFFFF, PWSTR(0 as *mut _), 0);
+      let item_count = shell::DragQueryFileW(hdrop, 0xFFFFFFFF, PWSTR(ptr::null_mut()), 0);
 
       for i in 0..item_count {
         // Get the length of the path string NOT including the terminating null character.
         // Previously, this was using a fixed size array of MAX_PATH length, but the
         // Windows API allows longer paths under certain circumstances.
-        let character_count = shell::DragQueryFileW(hdrop, i, PWSTR(0 as *mut _), 0) as usize;
+        let character_count = shell::DragQueryFileW(hdrop, i, PWSTR(ptr::null_mut()), 0) as usize;
         let str_len = character_count + 1;
 
         // Fill path_buf with the null-terminated file name
@@ -294,51 +295,12 @@ impl DropTarget {
   }
 }
 
-#[repr(C)]
-#[allow(non_snake_case)]
-struct IDropTarget_vtable {
-  QueryInterface: unsafe extern "system" fn(
-    this: windows::RawPtr,
-    iid: &windows::Guid,
-    interface: *mut windows::RawPtr,
-  ) -> windows::ErrorCode,
-
-  AddRef: unsafe extern "system" fn(this: windows::RawPtr) -> u32,
-
-  Release: unsafe extern "system" fn(this: windows::RawPtr) -> u32,
-
-  DragEnter: unsafe extern "system" fn(
-    this: windows::RawPtr,
-    pDataObj: windows::RawPtr,
-    grfKeyState: u32,
-    pt: *const POINTL,
-    pdwEffect: *mut u32,
-  ) -> windows::ErrorCode,
-
-  DragOver: unsafe extern "system" fn(
-    this: windows::RawPtr,
-    grfKeyState: u32,
-    pt: *const POINTL,
-    pdwEffect: *mut u32,
-  ) -> windows::ErrorCode,
-
-  DragLeave: unsafe extern "system" fn(this: windows::RawPtr) -> windows::ErrorCode,
-
-  Drop: unsafe extern "system" fn(
-    this: windows::RawPtr,
-    pDataObj: windows::RawPtr,
-    grfKeyState: u32,
-    pt: *const POINTL,
-    pdwEffect: *mut u32,
-  ) -> windows::ErrorCode,
-}
-
-static DROP_TARGET_VTBL: IDropTarget_vtable = IDropTarget_vtable {
-  QueryInterface: DropTarget::QueryInterface,
-  AddRef: DropTarget::AddRef,
-  Release: DropTarget::Release,
-  DragEnter: DropTarget::DragEnter,
-  DragOver: DropTarget::DragOver,
-  DragLeave: DropTarget::DragLeave,
-  Drop: DropTarget::Drop,
-};
+static DROP_TARGET_VTBL: com::IDropTarget_abi = com::IDropTarget_abi(
+  DropTarget::QueryInterface,
+  DropTarget::AddRef,
+  DropTarget::Release,
+  DropTarget::DragEnter,
+  DropTarget::DragOver,
+  DropTarget::DragLeave,
+  DropTarget::Drop,
+);
