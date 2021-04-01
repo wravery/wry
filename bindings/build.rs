@@ -2,8 +2,7 @@
 extern crate thiserror;
 
 fn main() -> webview2_nuget::Result<()> {
-  let package_root = webview2_nuget::install()?;
-  webview2_nuget::update_windows(package_root)?;
+  webview2_nuget::install()?;
 
   windows::build!(
       Microsoft::Web::WebView2::Core::*,
@@ -46,6 +45,8 @@ fn main() -> webview2_nuget::Result<()> {
       Windows::Win32::WindowsAndMessaging::*
   );
 
+  println!("cargo:rerun-if-changed=build.rs");
+
   Ok(())
 }
 
@@ -55,7 +56,7 @@ mod webview2_nuget {
   const WEBVIEW2_NAME: &str = "Microsoft.Web.WebView2";
   const WEBVIEW2_VERSION: &str = "1.0.824-prerelease";
 
-  pub fn install() -> Result<PathBuf> {
+  pub fn install() -> Result<()> {
     let manifest_dir = get_manifest_dir()?;
     let install_root = match manifest_dir.to_str() {
       Some(path) => path,
@@ -89,9 +90,11 @@ mod webview2_nuget {
       if !check_nuget_dir(install_root)? {
         return Err(Error::MissingPath(package_root));
       }
+
+      update_windows(package_root)?;
     }
 
-    Ok(package_root)
+    Ok(())
   }
 
   fn get_manifest_dir() -> Result<PathBuf> {
@@ -116,14 +119,25 @@ mod webview2_nuget {
     Ok(dir_iter.next().is_some())
   }
 
-  pub fn update_windows(package_root: PathBuf) -> Result<()> {
+  fn update_windows(package_root: PathBuf) -> Result<()> {
     const WEBVIEW2_WINMD: &str = "Microsoft.Web.WebView2.Core.winmd";
 
     let mut windows_dir = get_workspace_dir()?;
     windows_dir.push(".windows");
+    fs::create_dir_all(windows_dir.as_path())?;
+
+    const WEBVIEW2_LICENSE: &str = "Microsoft.Web.WebView2.Core.LICENSE.txt";
+    const LICENSE_TXT: &str = "LICENSE.txt";
+
+    let mut license_dest = windows_dir.clone();
+    license_dest.push(WEBVIEW2_LICENSE);
+    let mut license_src = package_root.clone();
+    license_src.push(LICENSE_TXT);
+    fs::copy(license_src.as_path(), license_dest.as_path())?;
 
     let mut winmd_dest = windows_dir.clone();
     winmd_dest.push("winmd");
+    fs::create_dir_all(winmd_dest.as_path())?;
     winmd_dest.push(WEBVIEW2_WINMD);
     let mut winmd_src = package_root.clone();
     winmd_src.push("lib");
@@ -139,6 +153,7 @@ mod webview2_nuget {
     for target in WEBVIEW2_TARGETS {
       let mut dll_dest = windows_dir.clone();
       dll_dest.push(target);
+      fs::create_dir_all(dll_dest.as_path())?;
       dll_dest.push(WEBVIEW2_DLL);
       let mut dll_src = runtimes_dir.clone();
       dll_src.push(format!("win-{}", target));
