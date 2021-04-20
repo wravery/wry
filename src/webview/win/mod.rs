@@ -1,14 +1,16 @@
+mod callback;
+mod environment_options;
 mod file_drop;
 
 use bindings::{
-  Microsoft::Web::WebView2::Core as webview2,
-  Windows::{
-    Foundation::*,
-    Storage::Streams::*,
-    Win32::{
-      DisplayDevices::RECT,
-      WindowsAndMessaging::{self, HWND},
-    },
+  Microsoft::Web::WebView2 as webview2,
+  Windows::Win32::{
+    Com,
+    DisplayDevices::RECT,
+    Shell,
+    SystemServices::PWSTR,
+    WinRT::EventRegistrationToken,
+    WindowsAndMessaging::{self, HWND},
   },
 };
 
@@ -19,11 +21,7 @@ use crate::{
 
 use file_drop::FileDropController;
 
-use std::{
-  path::PathBuf,
-  rc::Rc,
-  sync::mpsc::{self, RecvError},
-};
+use std::{mem::{self, size_of}, path::PathBuf, ptr, rc::Rc, sync::mpsc::{self, RecvError}};
 
 use once_cell::unsync::OnceCell;
 use url::Url;
@@ -34,8 +32,8 @@ use winit::{
 };
 
 pub struct InnerWebView {
-  controller: Rc<OnceCell<webview2::CoreWebView2Controller>>,
-  webview: Rc<OnceCell<webview2::CoreWebView2>>,
+  controller: Rc<OnceCell<webview2::ICoreWebView2Controller>>,
+  webview: Rc<OnceCell<webview2::ICoreWebView2>>,
 
   // Store FileDropController in here to make sure it gets dropped when
   // the webview gets dropped, otherwise we'll have a memory leak
@@ -60,134 +58,259 @@ impl WV for InnerWebView {
   ) -> Result<Self> {
     let hwnd = HWND(window.hwnd() as _);
 
-    let controller_rc: Rc<OnceCell<webview2::CoreWebView2Controller>> = Rc::new(OnceCell::new());
-    let webview_rc: Rc<OnceCell<webview2::CoreWebView2>> = Rc::new(OnceCell::new());
+    let controller_rc: Rc<OnceCell<webview2::ICoreWebView2Controller>> = Rc::new(OnceCell::new());
+    let webview_rc: Rc<OnceCell<webview2::ICoreWebView2>> = Rc::new(OnceCell::new());
     let file_drop_controller_rc: Rc<OnceCell<FileDropController>> = Rc::new(OnceCell::new());
 
-    let env = wait_for_async_operation(match user_data_path {
-      Some(user_data_path_provided) => webview2::CoreWebView2Environment::CreateWithOptionsAsync(
-        "",
-        user_data_path_provided.to_str().unwrap_or(""),
-        webview2::CoreWebView2EnvironmentOptions::new()?,
-      )?,
-      None => webview2::CoreWebView2Environment::CreateAsync()?,
-    })?;
+    let env = unsafe {
+      let mut result = None;
+
+      wait_for_async_operation::<callback::CreateCoreWebView2EnvironmentCompletedHandler, callback::ErrorCodeArg, callback::InterfaceArg<webview2::ICoreWebView2Environment>>(
+        Box::new(|environmentcreatedhandler: webview2::ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler| {
+          match user_data_path {
+            Some(user_data_path_provided) => webview2::CreateCoreWebView2EnvironmentWithOptions(
+              "",
+              user_data_path_provided.to_str().unwrap_or(""),
+              environment_options::create_options().unwrap(),
+              environmentcreatedhandler,
+            ),
+            None => webview2::CreateCoreWebView2Environment(environmentcreatedhandler),
+          }
+        }),
+        Box::new(|error_code: windows::ErrorCode, environment: Option<webview2::ICoreWebView2Environment>| {
+          if error_code.is_ok() {
+            result = environment;
+          }
+
+          error_code
+        }),
+      )?;
+
+      result.expect("async operation was successful")
+    };
 
     // Webview controller
-    let controller = wait_for_async_operation(env.CreateCoreWebView2ControllerAsync(
-      webview2::CoreWebView2ControllerWindowReference::CreateFromWindowHandle(hwnd.0 as _)?,
-    )?)?;
-    let w = controller.CoreWebView2()?;
+    let controller = unsafe {
+      let mut result = None;
+      let env_ = env.clone();
+
+      wait_for_async_operation::<
+        callback::CreateCoreWebView2ControllerCompletedHandler,
+        callback::ErrorCodeArg,
+        callback::InterfaceArg<webview2::ICoreWebView2Controller>,
+      >(
+        Box::new(
+          move |handler: webview2::ICoreWebView2CreateCoreWebView2ControllerCompletedHandler| {
+            env_.CreateCoreWebView2Controller(hwnd, handler)
+          },
+        ),
+        Box::new(
+          |error_code: windows::ErrorCode,
+           controller: Option<webview2::ICoreWebView2Controller>| {
+            if error_code.is_ok() {
+              result = controller;
+            }
+            error_code
+          },
+        ),
+      )?;
+
+      result.expect("async operation was sucessful")
+    };
+
+    let w = unsafe {
+      let mut result = None;
+      assert!(controller.get_CoreWebView2(&mut result).is_ok());
+      result.expect("operation was sucessful")
+    };
+
     // Enable sensible defaults
-    let settings = w.Settings()?;
-    settings.SetIsStatusBarEnabled(false)?;
-    settings.SetAreDefaultContextMenusEnabled(true)?;
-    settings.SetIsZoomControlEnabled(false)?;
-    settings.SetAreDevToolsEnabled(false)?;
-    debug_assert_eq!(settings.SetAreDevToolsEnabled(true)?, ());
+    unsafe {
+      let mut result = None;
+      assert!(w.get_Settings(&mut result).is_ok());
+      let settings = result.expect("operation was sucessful");
+
+      assert!(settings.put_IsStatusBarEnabled(false).is_ok());
+      assert!(settings.put_AreDefaultContextMenusEnabled(true).is_ok());
+      assert!(settings.put_IsZoomControlEnabled(false).is_ok());
+      assert!(settings.put_AreDevToolsEnabled(false).is_ok());
+      debug_assert!(settings.put_AreDevToolsEnabled(true).is_ok());
+    }
 
     // Safety: System calls are unsafe
     unsafe {
       let mut rect = RECT::default();
       WindowsAndMessaging::GetClientRect(hwnd, &mut rect);
       let (width, height) = (rect.right - rect.left, rect.bottom - rect.top);
-      controller.SetBounds(Rect {
-        X: 0f32,
-        Y: 0f32,
-        Width: width as f32,
-        Height: height as f32,
-      })?;
+      assert!(controller
+        .put_Bounds(RECT {
+          left: 0,
+          top: 0,
+          right: width,
+          bottom: height,
+        })
+        .is_ok());
     }
 
     // Initialize scripts
-    wait_for_async_operation(w.AddScriptToExecuteOnDocumentCreatedAsync(
-      "window.external={invoke:s=>window.chrome.webview.postMessage(s)}",
-    )?)?;
-    for js in scripts {
-      wait_for_async_operation(w.AddScriptToExecuteOnDocumentCreatedAsync(js.as_str())?)?;
+    unsafe {
+      let w_ = w.clone();
+
+      wait_for_async_operation::<
+        callback::AddScriptToExecuteOnDocumentCreatedCompletedHandler,
+        callback::ErrorCodeArg,
+        callback::StringArg,
+      >(
+        Box::new(move |handler| {
+          w_.AddScriptToExecuteOnDocumentCreated(
+            "window.external={invoke:s=>window.chrome.webview.postMessage(s)}",
+            handler,
+          )
+        }),
+        Box::new(|error_code: windows::ErrorCode, _id| error_code),
+      )?;
+
+      for js in scripts {
+        let w_ = w.clone();
+
+        wait_for_async_operation::<
+          callback::AddScriptToExecuteOnDocumentCreatedCompletedHandler,
+          callback::ErrorCodeArg,
+          callback::StringArg,
+        >(
+          Box::new(move |handler| w_.AddScriptToExecuteOnDocumentCreated(js.as_str(), handler)),
+          Box::new(|error_code, _id| error_code),
+        )?;
+      }
     }
 
     // Message handler
-    w.WebMessageReceived(TypedEventHandler::<
-      webview2::CoreWebView2,
-      webview2::CoreWebView2WebMessageReceivedEventArgs,
-    >::new(move |webview, args| {
-      if let (Some(webview), Some(args)) = (webview, args) {
-        if let (Ok(js), Some(rpc_handler)) = (
-          String::from_utf16(args.TryGetWebMessageAsString()?.as_wide()),
-          rpc_handler.as_ref(),
-        ) {
-          match super::rpc_proxy(js, rpc_handler) {
-            Ok(result) => {
-              if let Some(ref script) = result {
-                let _ = webview.ExecuteScriptAsync(script.as_str())?;
+    unsafe {
+      let mut _token = EventRegistrationToken::default();
+      assert!(w
+        .add_WebMessageReceived(
+          callback::create::<callback::WebMessageReceivedEventHandler>(Box::new(
+            move |webview: Option<webview2::ICoreWebView2>,
+                  args: Option<webview2::ICoreWebView2WebMessageReceivedEventArgs>| {
+              if let (Some(webview), Some(args)) = (webview, args) {
+                let mut js = PWSTR::default();
+                if args.TryGetWebMessageAsString(&mut js).is_ok() {
+                  if let (js, Some(rpc_handler)) = (take_pwstr(js), rpc_handler.as_ref()) {
+                    match super::rpc_proxy(js, rpc_handler) {
+                      Ok(result) => {
+                        if let Some(ref script) = result {
+                          assert!(webview
+                            .ExecuteScript(
+                              script.as_str(),
+                              callback::create::<callback::ExecuteScriptCompletedHandler>(
+                                Box::new(|error_code, _result| error_code)
+                              )
+                              .unwrap(),
+                            )
+                            .is_ok());
+                        }
+                      }
+                      Err(e) => {
+                        eprintln!("{}", e);
+                      }
+                    }
+                  }
+                }
               }
-            }
-            Err(e) => {
-              eprintln!("{}", e);
-            }
-          }
-        }
-      }
-      Ok(())
-    }))?;
+              windows::ErrorCode::S_OK
+            },
+          ))?,
+          &mut _token,
+        )
+        .is_ok());
+    }
 
     let mut custom_protocol_name = None;
     if let Some((name, function)) = custom_protocol {
       // WebView2 doesn't support non-standard protocols yet, so we have to use this workaround
       // See https://github.com/MicrosoftEdge/WebView2Feedback/issues/73
       custom_protocol_name = Some(name.clone());
-      w.AddWebResourceRequestedFilter(
-        format!("file://custom-protocol-{}*", name).as_str(),
-        webview2::CoreWebView2WebResourceContext::All,
-      )?;
-      let env_ = env.clone();
 
-      w.WebResourceRequested(TypedEventHandler::<
-        webview2::CoreWebView2,
-        webview2::CoreWebView2WebResourceRequestedEventArgs,
-      >::new(move |_, args| {
-        if let Some(args) = args {
-          if let Ok(uri) = String::from_utf16(args.Request()?.Uri()?.as_wide()) {
-            // Undo the protocol workaround when giving path to resolver
-            let path = uri.replace(
-              &format!("file://custom-protocol-{}", name),
-              &format!("{}://", name),
-            );
+      unsafe {
+        assert!(w
+          .AddWebResourceRequestedFilter(
+            format!("file://custom-protocol-{}*", name).as_str(),
+            webview2::COREWEBVIEW2_WEB_RESOURCE_CONTEXT::COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
+          )
+          .is_ok());
+        let env_ = env.clone();
+        let mut token = EventRegistrationToken::default();
+        assert!(w
+          .add_WebResourceRequested(
+            callback::create::<callback::WebResourceRequestedEventHandler>(Box::new(
+              move |_webview: Option<webview2::ICoreWebView2>,
+               args: Option<webview2::ICoreWebView2WebResourceRequestedEventArgs>| {
+                if let Some(args) = args {
+                  let mut request = None;
+                  if args.get_Request(&mut request).is_ok() {
+                    if let Some(request) = request {
+                      let mut uri = PWSTR::default();
+                      if request.get_Uri(&mut uri).is_ok() {
+                        let uri = take_pwstr(uri);
 
-            if let Ok(content) = function(&path) {
-              let mime = MimeType::parse(&content, &uri);
-              let stream = InMemoryRandomAccessStream::new()?;
-              let writer = DataWriter::CreateDataWriter(stream.clone())?;
-              writer.WriteBytes(&content)?;
-              writer.DetachStream()?;
-              let response = env_.CreateWebResourceResponse(
-                stream,
-                200,
-                "OK",
-                format!("Content-Type: {}", mime).as_str(),
-              )?;
-              args.SetResponse(response)?;
-            }
-          }
-        }
+                        // Undo the protocol workaround when giving path to resolver
+                        let path = uri.replace(
+                          &format!("file://custom-protocol-{}", name),
+                          &format!("{}://", name),
+                        );
 
-        Ok(())
-      }))?;
+                        if let Ok(content) = function(&path) {
+                          let mime = MimeType::parse(&content, &uri);
+                          let mut content =
+                            Shell::SHCreateMemStream(content.as_ptr(), content.len() as u32);
+                          if content.is_some() {
+                            let mut response = None;
+                            if env_
+                              .CreateWebResourceResponse(
+                                &mut content,
+                                200,
+                                "OK",
+                                format!("Content-Type: {}", mime).as_str(),
+                                &mut response,
+                              )
+                              .is_ok()
+                            {
+                              return args.put_Response(response);
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+                windows::ErrorCode::S_OK
+              },
+            ))?,
+            &mut token,
+          )
+          .is_ok());
+      }
     }
 
     // Enable clipboard
-    w.PermissionRequested(TypedEventHandler::<
-      webview2::CoreWebView2,
-      webview2::CoreWebView2PermissionRequestedEventArgs,
-    >::new(|_, args| {
-      if let Some(args) = args {
-        if args.PermissionKind()? == webview2::CoreWebView2PermissionKind::ClipboardRead {
-          args.SetState(webview2::CoreWebView2PermissionState::Allow)?
-        }
-      }
-      Ok(())
-    }))?;
+    unsafe {
+      let mut token = EventRegistrationToken::default();
+      assert!(w.add_PermissionRequested(
+        callback::create::<callback::PermissionRequestedEventHandler>(Box::new(
+          move |_sender, args: Option<webview2::ICoreWebView2PermissionRequestedEventArgs>| {
+            if let Some(args) = args {
+              let mut permission_kind = webview2::COREWEBVIEW2_PERMISSION_KIND::COREWEBVIEW2_PERMISSION_KIND_UNKNOWN_PERMISSION;
+              if args.get_PermissionKind(&mut permission_kind).is_ok() && permission_kind == webview2::COREWEBVIEW2_PERMISSION_KIND::COREWEBVIEW2_PERMISSION_KIND_CLIPBOARD_READ {
+                return args.put_State(webview2::COREWEBVIEW2_PERMISSION_STATE::COREWEBVIEW2_PERMISSION_STATE_ALLOW);
+              }
+            }
+            windows::ErrorCode::S_OK
+          },
+        ))?,
+        &mut token,
+      )
+      .is_ok());
+    }
 
     // Navigation
     if let Some(url) = url {
@@ -195,7 +318,9 @@ impl WV for InnerWebView {
         let s = url.as_str();
         if let Some(pos) = s.find(',') {
           let (_, path) = s.split_at(pos + 1);
-          w.NavigateToString(path)?;
+          unsafe {
+            assert!(w.NavigateToString(path).is_ok());
+          }
         }
       } else {
         let mut url_string = String::from(url.as_str());
@@ -209,11 +334,15 @@ impl WV for InnerWebView {
             )
           }
         }
-        w.Navigate(url_string.as_str())?;
+        unsafe {
+          assert!(w.Navigate(url_string).is_ok());
+        }
       }
     }
 
-    controller.SetIsVisible(true)?;
+    unsafe {
+      assert!(controller.put_IsVisible(true).is_ok());
+    }
 
     let _ = controller_rc.set(controller).expect("set the controller");
     let _ = webview_rc.set(w).expect("set the webview");
@@ -233,8 +362,19 @@ impl WV for InnerWebView {
 
   fn eval(&self, js: &str) -> Result<()> {
     if let Some(w) = self.webview.get() {
-      let _ = w.ExecuteScriptAsync(js)?;
+      unsafe {
+        let error_code = w.ExecuteScript(
+          js,
+          callback::create::<callback::ExecuteScriptCompletedHandler>(Box::new(
+            move |error_code, _result| error_code,
+          ))?,
+        );
+        if error_code.is_err() {
+          return Err(windows::Error::fast_error(error_code).into());
+        }
+      }
     }
+
     Ok(())
   }
 }
@@ -247,12 +387,15 @@ impl InnerWebView {
       WindowsAndMessaging::GetClientRect(hwnd, &mut rect);
       if let Some(c) = self.controller.get() {
         let (width, height) = (rect.right - rect.left, rect.bottom - rect.top);
-        c.SetBounds(Rect {
-          X: 0f32,
-          Y: 0f32,
-          Width: width as f32,
-          Height: height as f32,
-        })?;
+        let error_code = c.put_Bounds(RECT {
+          left: 0,
+          top: 0,
+          right: width,
+          bottom: height,
+        });
+        if error_code.is_err() {
+          return Err(windows::Error::fast_error(error_code).into());
+        }
       }
     }
 
@@ -265,28 +408,88 @@ impl InnerWebView {
 /// to finish before starting the main message loop in `EventLoop::run`. As long as there are no pending
 /// results in `rx`, it will poll the [`EventLoop`] with [`EventLoopExtRunReturn::run_return`] and check for a
 /// result after each message is dispatched.
-fn wait_for_async_operation<T>(op: IAsyncOperation<T>) -> Result<T>
+unsafe fn wait_for_async_operation<'a, T, Arg1, Arg2>(
+  closure: Box<dyn FnOnce(<T as callback::Callback<'a>>::Interface) -> windows::ErrorCode>,
+  completed: callback::CompletedClosure<'a, Arg1, Arg2>,
+) -> Result<()>
 where
-  T: windows::RuntimeType,
+  T: callback::Callback<'a, Closure = callback::CompletedClosure<'a, Arg1, Arg2>>,
+  Arg1: callback::ClosureArg<'a>,
+  Arg2: callback::ClosureArg<'a>,
 {
   let (tx, rx) = mpsc::channel();
-  op.SetCompleted(AsyncOperationCompletedHandler::new(move |op, _status| {
-    if let Some(op) = op {
-      tx.send(op.GetResults()?).expect("send over mpsc channel");
-    }
-    Ok(())
-  }))?;
+  let completed = Box::new(move |arg_1, arg_2| {
+    tx.send(completed(arg_1, arg_2))
+      .expect("send over mpsc channel");
+    windows::ErrorCode::S_OK
+  });
+  let callback = callback::create::<'a, T>(completed)?;
+
+  let error_code = closure(callback);
+  if error_code.is_err() {
+    return Err(windows::Error::fast_error(error_code).into());
+  }
 
   let mut result = Err(RecvError.into());
   let mut event_loop = EventLoop::new();
   event_loop.run_return(|_, _, control_flow| {
     if let Ok(value) = rx.try_recv() {
       *control_flow = ControlFlow::Exit;
-      result = Ok(value);
+      if value.is_ok() {
+        result = Ok(());
+      } else {
+        result = Err(windows::Error::fast_error(value).into());
+      }
     } else {
       *control_flow = ControlFlow::Poll;
     }
   });
 
   result
+}
+
+pub fn string_from_pwstr(source: PWSTR) -> String {
+  let mut buffer = Vec::new();
+  let mut pwz = source.0;
+
+  unsafe {
+    while *pwz != 0 {
+      buffer.push(*pwz);
+      pwz = pwz.add(1);
+    }
+  }
+
+  String::from_utf16(&buffer).expect("string_from_pwstr")
+}
+
+pub fn take_pwstr(source: PWSTR) -> String {
+  let result = string_from_pwstr(source);
+
+  if !source.0.is_null() {
+    unsafe {
+      Com::CoTaskMemFree(mem::transmute(source.0));
+    }
+  }
+
+  result
+}
+
+pub fn pwstr_from_str(source: &str) -> PWSTR {
+  if source.is_empty() {
+    PWSTR::default()
+  } else {
+    let buffer: Vec<u16> = source.encode_utf16().collect();
+
+    unsafe {
+      let cch = source.len();
+      let cb = (cch + 1) * size_of::<u16>();
+      let result = PWSTR(mem::transmute(Com::CoTaskMemAlloc(cb)));
+      let mut pwz = result.0;
+      ptr::copy(buffer.as_ptr(), pwz, cch);
+      pwz = pwz.add(cch);
+      *pwz = 0u16;
+
+      result
+    }
+  }
 }

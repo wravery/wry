@@ -45,6 +45,7 @@ gdk-pixbuf = "0.9"
 
 [target."cfg(target_os = \"windows\")".dependencies]
 bindings = { path = "bindings" }
+callback_derive = { path = "src/webview/win/callback-derive" }
 windows = "0.7.0"
 tauri-winit = "0.24"
 

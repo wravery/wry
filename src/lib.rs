@@ -69,6 +69,9 @@ extern crate thiserror;
 #[cfg(target_os = "macos")]
 #[macro_use]
 extern crate objc;
+#[cfg(target_os = "windows")]
+#[macro_use]
+extern crate callback_derive;
 
 mod file_drop;
 #[cfg(feature = "file-drop")]

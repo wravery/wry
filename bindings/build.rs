@@ -3,9 +3,10 @@ extern crate thiserror;
 
 fn main() -> webview2_nuget::Result<()> {
   webview2_nuget::install()?;
+  webview2_nuget::update_lib_path()?;
 
   windows::build!(
-      Microsoft::Web::WebView2::Core::*,
+      Microsoft::Web::WebView2::*,
       Windows::Foundation::*,
       Windows::Storage::Streams::*,
       Windows::Win32::Com::*,
@@ -27,6 +28,7 @@ fn main() -> webview2_nuget::Result<()> {
         DragQueryFileW,
         HDROP,
         ITaskbarList,
+        SHCreateMemStream,
         TaskbarList
       },
       Windows::Win32::SystemServices::{
@@ -42,7 +44,8 @@ fn main() -> webview2_nuget::Result<()> {
         userHMETAFILEPICT,
         userHENHMETAFILE
       },
-      Windows::Win32::WindowsAndMessaging::*
+      Windows::Win32::WindowsAndMessaging::*,
+      Windows::Win32::WinRT::EventRegistrationToken,
   );
 
   println!("cargo:rerun-if-changed=build.rs");
@@ -54,7 +57,7 @@ mod webview2_nuget {
   use std::{convert::From, env, fs, io, path::PathBuf, process::Command};
 
   const WEBVIEW2_NAME: &str = "Microsoft.Web.WebView2";
-  const WEBVIEW2_VERSION: &str = "1.0.824-prerelease";
+  const WEBVIEW2_VERSION: &str = "1.0.774.44";
 
   pub fn install() -> Result<()> {
     let manifest_dir = get_manifest_dir()?;
@@ -63,8 +66,7 @@ mod webview2_nuget {
       None => return Err(Error::MissingPath(manifest_dir)),
     };
 
-    let mut package_root = manifest_dir.clone();
-    package_root.push(format!("{}.{}", WEBVIEW2_NAME, WEBVIEW2_VERSION));
+    let package_root = get_package_root_dir(manifest_dir.clone())?;
 
     if !check_nuget_dir(install_root)? {
       let mut nuget_path = manifest_dir.clone();
@@ -101,8 +103,18 @@ mod webview2_nuget {
     Ok(PathBuf::from(env::var("CARGO_MANIFEST_DIR")?))
   }
 
+  fn get_nuget_path() -> String {
+    format!("{}.{}", WEBVIEW2_NAME, WEBVIEW2_VERSION)
+  }
+
+  fn get_package_root_dir(manifest_dir: PathBuf) -> Result<PathBuf> {
+    let mut package_root = manifest_dir;
+    package_root.push(get_nuget_path());
+    Ok(package_root)
+  }
+
   fn check_nuget_dir(install_root: &str) -> Result<bool> {
-    let nuget_path = format!("{}.{}", WEBVIEW2_NAME, WEBVIEW2_VERSION);
+    let nuget_path = get_nuget_path();
     let mut dir_iter = fs::read_dir(install_root)?.filter(|dir| match dir {
       Ok(dir) => match dir.file_type() {
         Ok(file_type) => {
@@ -120,13 +132,11 @@ mod webview2_nuget {
   }
 
   fn update_windows(package_root: PathBuf) -> Result<()> {
-    const WEBVIEW2_WINMD: &str = "Microsoft.Web.WebView2.Core.winmd";
-
     let mut windows_dir = get_workspace_dir()?;
     windows_dir.push(".windows");
     fs::create_dir_all(windows_dir.as_path())?;
 
-    const WEBVIEW2_LICENSE: &str = "Microsoft.Web.WebView2.Core.LICENSE.txt";
+    const WEBVIEW2_LICENSE: &str = "WebView2Loader.dll.LICENSE.txt";
     const LICENSE_TXT: &str = "LICENSE.txt";
 
     let mut license_dest = windows_dir.clone();
@@ -135,34 +145,55 @@ mod webview2_nuget {
     license_src.push(LICENSE_TXT);
     fs::copy(license_src.as_path(), license_dest.as_path())?;
 
-    let mut winmd_dest = windows_dir.clone();
-    winmd_dest.push("winmd");
-    fs::create_dir_all(winmd_dest.as_path())?;
-    winmd_dest.push(WEBVIEW2_WINMD);
-    let mut winmd_src = package_root.clone();
-    winmd_src.push("lib");
-    winmd_src.push(WEBVIEW2_WINMD);
-    eprintln!("Copy from {:?} -> {:?}", winmd_src, winmd_dest);
-    fs::copy(winmd_src.as_path(), winmd_dest.as_path())?;
-
-    const WEBVIEW2_DLL: &str = "Microsoft.Web.WebView2.Core.dll";
+    const WEBVIEW2_DLL: &str = "WebView2Loader.dll";
+    const WEBVIEW2_LIB: &str = "WebView2Loader.dll.lib";
     const WEBVIEW2_TARGETS: &[&'static str] = &["arm64", "x64", "x86"];
 
-    let mut runtimes_dir = package_root;
-    runtimes_dir.push("runtimes");
-    for target in WEBVIEW2_TARGETS {
+    let mut native_dir = package_root;
+    native_dir.push("build");
+    native_dir.push("native");
+    for &target in WEBVIEW2_TARGETS {
       let mut dll_dest = windows_dir.clone();
       dll_dest.push(target);
       fs::create_dir_all(dll_dest.as_path())?;
+      let mut lib_dest = dll_dest.clone();
+      let mut dll_src = native_dir.clone();
+      dll_src.push(target);
+      let mut lib_src = dll_src.clone();
       dll_dest.push(WEBVIEW2_DLL);
-      let mut dll_src = runtimes_dir.clone();
-      dll_src.push(format!("win-{}", target));
-      dll_src.push("native_uap");
       dll_src.push(WEBVIEW2_DLL);
       eprintln!("Copy from {:?} -> {:?}", dll_src, dll_dest);
       fs::copy(dll_src.as_path(), dll_dest.as_path())?;
+      lib_dest.push(WEBVIEW2_LIB);
+      lib_src.push(WEBVIEW2_LIB);
+      eprintln!("Copy from {:?} -> {:?}", lib_src, lib_dest);
+      fs::copy(lib_src.as_path(), lib_dest.as_path())?;
     }
 
+    Ok(())
+  }
+
+  fn get_arch() -> Result<String> {
+    let target = env::var("TARGET")?;
+    let arch = if target.contains("x86_64") {
+      "x64"
+    } else {
+      "x86"
+    };
+    Ok(String::from(arch))
+  }
+
+  pub fn update_lib_path() -> Result<()> {
+    let mut lib_path = get_package_root_dir(get_manifest_dir()?)?;
+    lib_path.push("build");
+    lib_path.push("native");
+    lib_path.push(get_arch()?);
+    let lib_path = match lib_path.to_str() {
+      Some(path) => path,
+      None => return Err(Error::MissingPath(lib_path)),
+    };
+
+    println!("cargo:rustc-link-search=native={}", lib_path);
     Ok(())
   }
 
