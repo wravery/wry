@@ -16,14 +16,14 @@ use super::string_from_pwstr;
 unsafe fn from_abi<I: Interface>(this: windows::RawPtr) -> windows::Result<I> {
   let unknown = windows::IUnknown::from_abi(this)?;
   unknown.vtable().1(unknown.abi()); // add_ref to balance the release called in IUnknown::drop
-  Ok(unknown.cast()?)
+  unknown.cast()
 }
 
-pub unsafe fn create<'a, T: Callback<'a>>(
+pub fn create<'a, T: Callback<'a>>(
   closure: <T as Callback<'a>>::Closure,
 ) -> windows::Result<<T as Callback<'a>>::Interface> {
   let handler = Box::new(T::new(closure));
-  let handler = from_abi(Box::into_raw(handler) as windows::RawPtr)?;
+  let handler = unsafe { from_abi(Box::into_raw(handler) as windows::RawPtr)? };
   Ok(handler)
 }
 

@@ -16,12 +16,12 @@ use bindings::{
 unsafe fn from_abi<I: Interface>(this: windows::RawPtr) -> windows::Result<I> {
   let unknown = windows::IUnknown::from_abi(this)?;
   unknown.vtable().1(unknown.abi()); // add_ref to balance the release called in IUnknown::drop
-  Ok(unknown.cast()?)
+  unknown.cast()
 }
 
-pub unsafe fn create_options() -> windows::Result<WebView2::ICoreWebView2EnvironmentOptions> {
+pub fn create_options() -> windows::Result<WebView2::ICoreWebView2EnvironmentOptions> {
   let options = Box::new(EnvironmentOptions::new());
-  let options = from_abi(Box::into_raw(options) as windows::RawPtr)?;
+  let options = unsafe { from_abi(Box::into_raw(options) as windows::RawPtr)? };
   Ok(options)
 }
 
@@ -123,10 +123,7 @@ impl EnvironmentOptions {
     S_OK
   }
 
-  unsafe extern "system" fn put_language(
-    this: windows::RawPtr,
-    value: PWSTR,
-  ) -> windows::HRESULT {
+  unsafe extern "system" fn put_language(this: windows::RawPtr, value: PWSTR) -> windows::HRESULT {
     let interface: *mut Self = mem::transmute(this);
     (*interface).language = string_from_pwstr(value);
     S_OK
