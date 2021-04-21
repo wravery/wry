@@ -1,9 +1,6 @@
 use super::{pwstr_from_str, string_from_pwstr};
 
-use std::{
-  mem,
-  sync::atomic::{AtomicU32, Ordering},
-};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use windows::{Abi, Interface};
 
@@ -81,13 +78,12 @@ impl EnvironmentOptions {
   }
 
   unsafe extern "system" fn add_ref(this: windows::RawPtr) -> u32 {
-    let interface: *mut Self = mem::transmute(this);
-    let count = (*interface).refcount.fetch_add(1, Ordering::Release) + 1;
-    count
+    let interface = this as *mut Self;
+    (*interface).refcount.fetch_add(1, Ordering::Release) + 1
   }
 
   unsafe extern "system" fn release(this: windows::RawPtr) -> u32 {
-    let interface: *mut Self = mem::transmute(this);
+    let interface = this as *mut Self;
     let count = (*interface).refcount.fetch_sub(1, Ordering::Release) - 1;
     if count == 0 {
       // Destroy the underlying data
@@ -100,7 +96,7 @@ impl EnvironmentOptions {
     this: windows::RawPtr,
     value: *mut PWSTR,
   ) -> windows::HRESULT {
-    let interface: *const Self = mem::transmute(this);
+    let interface = this as *const Self;
     *value = pwstr_from_str(&(*interface).additional_browser_arguments);
     S_OK
   }
@@ -109,7 +105,7 @@ impl EnvironmentOptions {
     this: windows::RawPtr,
     value: PWSTR,
   ) -> windows::HRESULT {
-    let interface: *mut Self = mem::transmute(this);
+    let interface = this as *mut Self;
     (*interface).additional_browser_arguments = string_from_pwstr(value);
     S_OK
   }
@@ -118,13 +114,13 @@ impl EnvironmentOptions {
     this: windows::RawPtr,
     value: *mut PWSTR,
   ) -> windows::HRESULT {
-    let interface: *const Self = mem::transmute(this);
+    let interface = this as *const Self;
     *value = pwstr_from_str(&(*interface).language);
     S_OK
   }
 
   unsafe extern "system" fn put_language(this: windows::RawPtr, value: PWSTR) -> windows::HRESULT {
-    let interface: *mut Self = mem::transmute(this);
+    let interface = this as *mut Self;
     (*interface).language = string_from_pwstr(value);
     S_OK
   }
@@ -133,7 +129,7 @@ impl EnvironmentOptions {
     this: windows::RawPtr,
     value: *mut PWSTR,
   ) -> windows::HRESULT {
-    let interface: *const Self = mem::transmute(this);
+    let interface = this as *const Self;
     *value = pwstr_from_str(&(*interface).target_compatible_browser);
     S_OK
   }
@@ -142,7 +138,7 @@ impl EnvironmentOptions {
     this: windows::RawPtr,
     value: PWSTR,
   ) -> windows::HRESULT {
-    let interface: *mut Self = mem::transmute(this);
+    let interface = this as *mut Self;
     (*interface).target_compatible_browser = string_from_pwstr(value);
     S_OK
   }
@@ -151,7 +147,7 @@ impl EnvironmentOptions {
     this: windows::RawPtr,
     allow: *mut BOOL,
   ) -> windows::HRESULT {
-    let interface: *const Self = mem::transmute(this);
+    let interface = this as *const Self;
     *allow = BOOL::from((*interface).allow_single_sign_on_using_os_primary_account);
     S_OK
   }
@@ -160,7 +156,7 @@ impl EnvironmentOptions {
     this: windows::RawPtr,
     allow: BOOL,
   ) -> windows::HRESULT {
-    let interface: *mut Self = mem::transmute(this);
+    let interface = this as *mut Self;
     (*interface).allow_single_sign_on_using_os_primary_account = allow.as_bool();
     S_OK
   }

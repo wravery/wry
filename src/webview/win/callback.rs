@@ -1,6 +1,5 @@
 use std::{
   marker::PhantomData,
-  mem,
   sync::{
     atomic::{AtomicU32, Ordering},
     mpsc::{self, RecvError},
@@ -50,13 +49,13 @@ pub trait CallbackInterface<'a, T: Callback<'a>>: Sized {
   }
 
   unsafe extern "system" fn add_ref(this: windows::RawPtr) -> u32 {
-    let interface: *mut Self = mem::transmute(this);
+    let interface = this as *mut Self;
     let count = (*interface).refcount().fetch_add(1, Ordering::Release) + 1;
     count
   }
 
   unsafe extern "system" fn release(this: windows::RawPtr) -> u32 {
-    let interface: *mut Self = mem::transmute(this);
+    let interface = this as *mut Self;
     let count = (*interface).refcount().fetch_sub(1, Ordering::Release) - 1;
     if count == 0 {
       // Destroy the underlying data
@@ -139,7 +138,7 @@ where
     arg_1: Arg1::Input,
     arg_2: Arg2::Input,
   ) -> windows::HRESULT {
-    let interface: *mut Self = mem::transmute(this);
+    let interface = this as *mut Self;
     match (*interface).completed() {
       Some(completed) => completed(Arg1::convert(arg_1), Arg2::convert(arg_2)),
       None => S_OK,
@@ -165,7 +164,7 @@ where
     arg_1: Arg1::Input,
     arg_2: Arg2::Input,
   ) -> windows::HRESULT {
-    let interface: *mut Self = mem::transmute(this);
+    let interface = this as *mut Self;
     ((*interface).event())(Arg1::convert(arg_1), Arg2::convert(arg_2))
   }
 }

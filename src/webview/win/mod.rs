@@ -220,7 +220,7 @@ impl WV for InnerWebView {
           webview2::COREWEBVIEW2_WEB_RESOURCE_CONTEXT::COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
         )
         .ok()?;
-        let env_ = env.clone();
+        let env_ = env;
         let mut token = EventRegistrationToken::default();
         w.add_WebResourceRequested(
           callback::WebResourceRequestedEventHandler::create(Box::new(
@@ -331,7 +331,9 @@ impl WV for InnerWebView {
     if let Some(file_drop_handler) = file_drop_handler {
       let mut file_drop_controller = FileDropController::new();
       file_drop_controller.listen(hwnd, file_drop_handler);
-      let _ = file_drop_controller_rc.set(file_drop_controller);
+      file_drop_controller_rc
+        .set(file_drop_controller)
+        .unwrap_or_default();
     }
 
     Ok(Self {

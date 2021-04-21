@@ -55,10 +55,10 @@ impl Parse for CallbackStruct {
 #[proc_macro_attribute]
 pub fn completed_callback(_attr: TokenStream, input: TokenStream) -> TokenStream {
   let ast = parse_macro_input!(input as CallbackStruct);
-  impl_completed_callback(&ast).expect("error in impl_completed_callback")
+  impl_completed_callback(&ast)
 }
 
-fn impl_completed_callback(ast: &CallbackStruct) -> Result<TokenStream> {
+fn impl_completed_callback(ast: &CallbackStruct) -> TokenStream {
   let vis = &ast.vis;
 
   let name = &ast.ident;
@@ -173,16 +173,16 @@ fn impl_completed_callback(ast: &CallbackStruct) -> Result<TokenStream> {
       }
   };
 
-  Ok(gen.into())
+  gen.into()
 }
 
 #[proc_macro_attribute]
 pub fn event_callback(_attr: TokenStream, input: TokenStream) -> TokenStream {
   let ast = parse_macro_input!(input as CallbackStruct);
-  impl_event_callback(&ast).expect("error in impl_event_callback")
+  impl_event_callback(&ast)
 }
 
-fn impl_event_callback(ast: &CallbackStruct) -> Result<TokenStream> {
+fn impl_event_callback(ast: &CallbackStruct) -> TokenStream {
   let vis = &ast.vis;
 
   let name = &ast.ident;
@@ -255,7 +255,7 @@ fn impl_event_callback(ast: &CallbackStruct) -> Result<TokenStream> {
       }
   };
 
-  Ok(gen.into())
+  gen.into()
 }
 
 fn get_closure(name: &Ident) -> Ident {

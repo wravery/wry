@@ -100,7 +100,7 @@ extern "system" fn enumerate_callback(hwnd: HWND, lparam: LPARAM) -> BOOL {
 unsafe fn from_abi<I: Interface>(this: windows::RawPtr) -> windows::Result<I> {
   let unknown = windows::IUnknown::from_abi(this)?;
   unknown.vtable().1(unknown.abi()); // AddRef to balance the Release called in IUnknown::drop
-  Ok(unknown.cast()?)
+  unknown.cast()
 }
 
 // The below code has been ripped from Winit - if only they'd `pub use` this!
@@ -153,8 +153,7 @@ impl DropTarget {
 
   pub unsafe extern "system" fn AddRef(this: windows::RawPtr) -> u32 {
     let drop_target = Self::from_interface(this);
-    let count = drop_target.refcount.fetch_add(1, Ordering::Release) + 1;
-    count
+    drop_target.refcount.fetch_add(1, Ordering::Release) + 1
   }
 
   pub unsafe extern "system" fn Release(this: windows::RawPtr) -> u32 {
@@ -276,7 +275,7 @@ impl DropTarget {
         paths.push(OsString::from_wide(&path_buf[0..character_count]).into());
       }
 
-      return Some(hdrop);
+      Some(hdrop)
     } else if get_data_result.0 == SystemServices::DV_E_FORMATETC.0 {
       // If the dropped item is not a file this error will occur.
       // In this case it is OK to return without taking further action.
@@ -284,13 +283,13 @@ impl DropTarget {
         false,
         "Error occured while processing dropped/hovered item: item is not a file."
       );
-      return None;
+      None
     } else {
       debug_assert!(
         false,
         "Unexpected error occured while processing dropped/hovered item."
       );
-      return None;
+      None
     }
   }
 }
