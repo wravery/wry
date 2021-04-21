@@ -58,7 +58,7 @@ fn main() -> webview2_nuget::Result<()> {
 
 mod webview2_nuget {
   use io::Write;
-    use regex::Regex;
+  use regex::Regex;
   use std::{
     convert::From,
     env, fs,
@@ -210,17 +210,18 @@ mod webview2_nuget {
     Ok(())
   }
 
+  include!("src/constants.rs");
+
   pub fn update_constants() -> Result<()> {
     let mut header_path = get_package_root_dir(get_manifest_dir()?)?;
     header_path.push("build");
     header_path.push("native");
     header_path.push("include");
     header_path.push("WebView2EnvironmentOptions.h");
-    let error_path = header_path.clone();
 
     let header = fs::File::open(match header_path.to_str() {
       Some(path) => Ok(path),
-      None => Err(Error::MissingPath(header_path)),
+      None => Err(Error::MissingPath(header_path.clone())),
     }?)?;
     let reader = io::BufReader::new(header);
     let re = Regex::new(r#"^\s*#define\s+CORE_WEBVIEW_TARGET_PRODUCT_VERSION\s+L"([^"]+)"\s*$"#)?;
@@ -237,19 +238,27 @@ mod webview2_nuget {
 
     match target_compatible_browser {
       Some(target_compatible_browser) => {
-        let mut constants_path = PathBuf::new();
-        constants_path.push("src");
-        constants_path.push("constants.rs");
-        let constants = fs::File::create(match constants_path.to_str() {
-          Some(path) => Ok(path),
-          None => Err(Error::MissingPath(constants_path)),
-        }?)?;
-        let mut writer = io::BufWriter::new(constants);
-        writer.write_all(format!("pub const TARGET_COMPATIBLE_BROWSER: &str = \"{}\";\n", target_compatible_browser).as_bytes())?;
+        if target_compatible_browser != TARGET_COMPATIBLE_BROWSER {
+          let mut constants_path = PathBuf::new();
+          constants_path.push("src");
+          constants_path.push("constants.rs");
+          let constants = fs::File::create(match constants_path.to_str() {
+            Some(path) => Ok(path),
+            None => Err(Error::MissingPath(constants_path)),
+          }?)?;
+          let mut writer = io::BufWriter::new(constants);
+          writer.write_all(
+            format!(
+              "pub const TARGET_COMPATIBLE_BROWSER: &str = \"{}\";\n",
+              target_compatible_browser
+            )
+            .as_bytes(),
+          )?;
+        }
 
         Ok(())
       }
-      None => Err(Error::MissingPath(error_path)),
+      None => Err(Error::MissingPath(header_path.clone())),
     }
   }
 
