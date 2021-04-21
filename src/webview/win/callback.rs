@@ -11,7 +11,7 @@ use windows::{Abi, Interface};
 
 use winit::{
   event_loop::{ControlFlow, EventLoop},
-  platform::{run_return::EventLoopExtRunReturn},
+  platform::run_return::EventLoopExtRunReturn,
 };
 
 use bindings::{
