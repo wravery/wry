@@ -1,10 +1,18 @@
 use std::{
   marker::PhantomData,
   mem,
-  sync::atomic::{AtomicU32, Ordering},
+  sync::{
+    atomic::{AtomicU32, Ordering},
+    mpsc::{self, RecvError},
+  },
 };
 
 use windows::{Abi, Interface};
+
+use winit::{
+  event_loop::{ControlFlow, EventLoop},
+  platform::{run_return::EventLoopExtRunReturn},
+};
 
 use bindings::{
   Microsoft::Web::WebView2,
@@ -13,25 +21,11 @@ use bindings::{
 
 use super::string_from_pwstr;
 
-unsafe fn from_abi<I: Interface>(this: windows::RawPtr) -> windows::Result<I> {
-  let unknown = windows::IUnknown::from_abi(this)?;
-  unknown.vtable().1(unknown.abi()); // add_ref to balance the release called in IUnknown::drop
-  unknown.cast()
-}
-
-pub fn create<'a, T: Callback<'a>>(
-  closure: <T as Callback<'a>>::Closure,
-) -> windows::Result<<T as Callback<'a>>::Interface> {
-  let handler = Box::new(T::new(closure));
-  let handler = unsafe { from_abi(Box::into_raw(handler) as windows::RawPtr)? };
-  Ok(handler)
-}
-
 pub trait Callback<'a> {
   type Interface: 'a + Interface;
   type Closure: 'a;
 
-  fn new(closure: Self::Closure) -> Self;
+  fn create(closure: Self::Closure) -> windows::Result<Self::Interface>;
 }
 
 pub trait CallbackInterface<'a, T: Callback<'a>>: Sized {
@@ -100,11 +94,19 @@ impl<'a, I: 'a + Interface> ClosureArg<'a> for InterfaceArg<I> {
     if input.is_null() {
       None
     } else {
-      match unsafe { from_abi(input) } {
+      match unsafe { Self::from_abi(input) } {
         Ok(interface) => Some(interface),
         Err(_) => None,
       }
     }
+  }
+}
+
+impl<'a, I: 'a + Interface> InterfaceArg<I> {
+  unsafe fn from_abi(this: windows::RawPtr) -> windows::Result<I> {
+    let unknown = windows::IUnknown::from_abi(this)?;
+    unknown.vtable().1(unknown.abi()); // add_ref to balance the release called in IUnknown::drop
+    unknown.cast()
   }
 }
 

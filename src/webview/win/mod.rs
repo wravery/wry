@@ -27,16 +27,11 @@ use std::{
   path::PathBuf,
   ptr,
   rc::Rc,
-  sync::mpsc::{self, RecvError},
 };
 
 use once_cell::unsync::OnceCell;
 use url::Url;
-use winit::{
-  event_loop::{ControlFlow, EventLoop},
-  platform::{run_return::EventLoopExtRunReturn, windows::WindowExtWindows},
-  window::Window,
-};
+use winit::{platform::windows::WindowExtWindows, window::Window};
 
 pub struct InnerWebView {
   controller: Rc<OnceCell<webview2::ICoreWebView2Controller>>,
@@ -72,7 +67,7 @@ impl WV for InnerWebView {
     let env = unsafe {
       let mut result = None;
 
-      wait_for_async_operation::<callback::CreateCoreWebView2EnvironmentCompletedHandler, callback::ErrorCodeArg, callback::InterfaceArg<webview2::ICoreWebView2Environment>>(
+      callback::CreateCoreWebView2EnvironmentCompletedHandler::wait_for_async_operation(
         Box::new(|environmentcreatedhandler: webview2::ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler| {
           match user_data_path {
             Some(user_data_path_provided) => webview2::CreateCoreWebView2EnvironmentWithOptions(
@@ -101,11 +96,7 @@ impl WV for InnerWebView {
       let mut result = None;
       let env_ = env.clone();
 
-      wait_for_async_operation::<
-        callback::CreateCoreWebView2ControllerCompletedHandler,
-        callback::ErrorCodeArg,
-        callback::InterfaceArg<webview2::ICoreWebView2Controller>,
-      >(
+      callback::CreateCoreWebView2ControllerCompletedHandler::wait_for_async_operation(
         Box::new(
           move |handler: webview2::ICoreWebView2CreateCoreWebView2ControllerCompletedHandler| {
             env_.CreateCoreWebView2Controller(hwnd, handler)
@@ -160,11 +151,7 @@ impl WV for InnerWebView {
     unsafe {
       let w_ = w.clone();
 
-      wait_for_async_operation::<
-        callback::AddScriptToExecuteOnDocumentCreatedCompletedHandler,
-        callback::ErrorCodeArg,
-        callback::StringArg,
-      >(
+      callback::AddScriptToExecuteOnDocumentCreatedCompletedHandler::wait_for_async_operation(
         Box::new(move |handler| {
           w_.AddScriptToExecuteOnDocumentCreated(
             "window.external={invoke:s=>window.chrome.webview.postMessage(s)}",
@@ -177,11 +164,7 @@ impl WV for InnerWebView {
       for js in scripts {
         let w_ = w.clone();
 
-        wait_for_async_operation::<
-          callback::AddScriptToExecuteOnDocumentCreatedCompletedHandler,
-          callback::ErrorCodeArg,
-          callback::StringArg,
-        >(
+        callback::AddScriptToExecuteOnDocumentCreatedCompletedHandler::wait_for_async_operation(
           Box::new(move |handler| w_.AddScriptToExecuteOnDocumentCreated(js.as_str(), handler)),
           Box::new(|error_code, _id| error_code),
         )?;
@@ -192,7 +175,7 @@ impl WV for InnerWebView {
     unsafe {
       let mut _token = EventRegistrationToken::default();
       w.add_WebMessageReceived(
-        callback::create::<callback::WebMessageReceivedEventHandler>(Box::new(
+        callback::WebMessageReceivedEventHandler::create(Box::new(
           move |webview: Option<webview2::ICoreWebView2>,
                 args: Option<webview2::ICoreWebView2WebMessageReceivedEventArgs>| {
             if let (Some(webview), Some(args)) = (webview, args) {
@@ -240,7 +223,7 @@ impl WV for InnerWebView {
         let env_ = env.clone();
         let mut token = EventRegistrationToken::default();
         w.add_WebResourceRequested(
-          callback::create::<callback::WebResourceRequestedEventHandler>(Box::new(
+          callback::WebResourceRequestedEventHandler::create(Box::new(
             move |_webview: Option<webview2::ICoreWebView2>,
                   args: Option<webview2::ICoreWebView2WebResourceRequestedEventArgs>| {
               if let Some(args) = args {
@@ -294,7 +277,7 @@ impl WV for InnerWebView {
     unsafe {
       let mut token = EventRegistrationToken::default();
       w.add_PermissionRequested(
-        callback::create::<callback::PermissionRequestedEventHandler>(Box::new(
+        callback::PermissionRequestedEventHandler::create(Box::new(
           move |_sender, args: Option<webview2::ICoreWebView2PermissionRequestedEventArgs>| {
             if let Some(args) = args {
               let mut permission_kind = webview2::COREWEBVIEW2_PERMISSION_KIND::COREWEBVIEW2_PERMISSION_KIND_UNKNOWN_PERMISSION;
@@ -391,51 +374,6 @@ impl InnerWebView {
 
     Ok(())
   }
-}
-
-/// The WebView2 threading model runs everything on the UI thread, including callbacks which it triggers
-/// with `PostMessage`, and we're using this here because it's waiting for some async operations in WebView2
-/// to finish before starting the main message loop in `EventLoop::run`. As long as there are no pending
-/// results in `rx`, it will poll the [`EventLoop`] with [`EventLoopExtRunReturn::run_return`] and check for a
-/// result after each message is dispatched.
-fn wait_for_async_operation<'a, T, Arg1, Arg2>(
-  closure: Box<dyn FnOnce(<T as callback::Callback<'a>>::Interface) -> windows::HRESULT>,
-  completed: callback::CompletedClosure<'a, Arg1, Arg2>,
-) -> Result<()>
-where
-  T: callback::Callback<'a, Closure = callback::CompletedClosure<'a, Arg1, Arg2>>,
-  Arg1: callback::ClosureArg<'a>,
-  Arg2: callback::ClosureArg<'a>,
-{
-  let (tx, rx) = mpsc::channel();
-  let completed = Box::new(move |arg_1, arg_2| {
-    tx.send(completed(arg_1, arg_2))
-      .expect("send over mpsc channel");
-    S_OK
-  });
-  let callback = callback::create::<'a, T>(completed)?;
-
-  let error_code = closure(callback);
-  if error_code.is_err() {
-    return Err(windows::Error::fast_error(error_code).into());
-  }
-
-  let mut result = Err(RecvError.into());
-  let mut event_loop = EventLoop::new();
-  event_loop.run_return(|_, _, control_flow| {
-    if let Ok(value) = rx.try_recv() {
-      *control_flow = ControlFlow::Exit;
-      if value.is_ok() {
-        result = Ok(());
-      } else {
-        result = Err(windows::Error::fast_error(value).into());
-      }
-    } else {
-      *control_flow = ControlFlow::Poll;
-    }
-  });
-
-  result
 }
 
 pub fn string_from_pwstr(source: PWSTR) -> String {
