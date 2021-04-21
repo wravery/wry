@@ -4,10 +4,10 @@ extern crate thiserror;
 fn main() -> webview2_nuget::Result<()> {
   webview2_nuget::install()?;
   webview2_nuget::update_lib_path()?;
+  webview2_nuget::update_constants()?;
 
   windows::build!(
       Microsoft::Web::WebView2::*,
-      Windows::Foundation::*,
       Windows::Storage::Streams::*,
       Windows::Win32::Com::*,
       Windows::Win32::DisplayDevices::{
@@ -36,11 +36,14 @@ fn main() -> webview2_nuget::Result<()> {
         CLIPBOARD_FORMATS,
         DRAGDROP_E_INVALIDHWND,
         DV_E_FORMATETC,
+        E_NOINTERFACE,
+        E_POINTER,
         GetCurrentThreadId,
         GetModuleHandleA,
         HINSTANCE,
         LRESULT,
         PWSTR,
+        S_OK,
         userHMETAFILEPICT,
         userHENHMETAFILE
       },
@@ -54,7 +57,15 @@ fn main() -> webview2_nuget::Result<()> {
 }
 
 mod webview2_nuget {
-  use std::{convert::From, env, fs, io, path::PathBuf, process::Command};
+  use io::Write;
+    use regex::Regex;
+  use std::{
+    convert::From,
+    env, fs,
+    io::{self, BufRead},
+    path::PathBuf,
+    process::Command,
+  };
 
   const WEBVIEW2_NAME: &str = "Microsoft.Web.WebView2";
   const WEBVIEW2_VERSION: &str = "1.0.774.44";
@@ -177,6 +188,8 @@ mod webview2_nuget {
     let target = env::var("TARGET")?;
     let arch = if target.contains("x86_64") {
       "x64"
+    } else if target.contains("aarch64") {
+      "arm64"
     } else {
       "x86"
     };
@@ -195,6 +208,49 @@ mod webview2_nuget {
 
     println!("cargo:rustc-link-search=native={}", lib_path);
     Ok(())
+  }
+
+  pub fn update_constants() -> Result<()> {
+    let mut header_path = get_package_root_dir(get_manifest_dir()?)?;
+    header_path.push("build");
+    header_path.push("native");
+    header_path.push("include");
+    header_path.push("WebView2EnvironmentOptions.h");
+    let error_path = header_path.clone();
+
+    let header = fs::File::open(match header_path.to_str() {
+      Some(path) => Ok(path),
+      None => Err(Error::MissingPath(header_path)),
+    }?)?;
+    let reader = io::BufReader::new(header);
+    let re = Regex::new(r#"^\s*#define\s+CORE_WEBVIEW_TARGET_PRODUCT_VERSION\s+L"([^"]+)"\s*$"#)?;
+    let target_compatible_browser = reader
+      .lines()
+      .filter_map(|line| match line {
+        Ok(line) => match re.captures(line.as_str()) {
+          Some(cap) => cap.get(1).map(|m| String::from(m.as_str())),
+          None => None,
+        },
+        _ => None,
+      })
+      .next();
+
+    match target_compatible_browser {
+      Some(target_compatible_browser) => {
+        let mut constants_path = PathBuf::new();
+        constants_path.push("src");
+        constants_path.push("constants.rs");
+        let constants = fs::File::create(match constants_path.to_str() {
+          Some(path) => Ok(path),
+          None => Err(Error::MissingPath(constants_path)),
+        }?)?;
+        let mut writer = io::BufWriter::new(constants);
+        writer.write_all(format!("pub const TARGET_COMPATIBLE_BROWSER: &str = \"{}\";\n", target_compatible_browser).as_bytes())?;
+
+        Ok(())
+      }
+      None => Err(Error::MissingPath(error_path)),
+    }
   }
 
   fn get_workspace_dir() -> Result<PathBuf> {
@@ -222,6 +278,8 @@ mod webview2_nuget {
     VarError(#[from] env::VarError),
     #[error(transparent)]
     JsonError(#[from] serde_json::Error),
+    #[error(transparent)]
+    RegexError(#[from] regex::Error),
     #[error("Missing Path")]
     MissingPath(PathBuf),
   }

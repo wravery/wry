@@ -1,0 +1,1 @@
+pub const TARGET_COMPATIBLE_BROWSER: &str = "89.0.774.44";

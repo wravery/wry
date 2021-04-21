@@ -6,7 +6,10 @@ use std::{
 
 use windows::{Abi, Interface};
 
-use bindings::{Microsoft::Web::WebView2, Windows::Win32::SystemServices::PWSTR};
+use bindings::{
+  Microsoft::Web::WebView2,
+  Windows::Win32::SystemServices::{E_NOINTERFACE, E_POINTER, PWSTR, S_OK},
+};
 
 use super::string_from_pwstr;
 
@@ -38,17 +41,17 @@ pub trait CallbackInterface<'a, T: Callback<'a>>: Sized {
     this: windows::RawPtr,
     iid: &windows::Guid,
     interface: *mut windows::RawPtr,
-  ) -> windows::ErrorCode {
+  ) -> windows::HRESULT {
     if interface.is_null() {
-      windows::ErrorCode::E_POINTER
+      E_POINTER
     } else if *iid == windows::IUnknown::IID
       || *iid == <<T as Callback>::Interface as Interface>::IID
     {
       Self::add_ref(this);
       *interface = this;
-      windows::ErrorCode::S_OK
+      S_OK
     } else {
-      windows::ErrorCode::E_NOINTERFACE
+      E_NOINTERFACE
     }
   }
 
@@ -79,10 +82,10 @@ pub trait ClosureArg<'a> {
 pub struct ErrorCodeArg;
 
 impl<'a> ClosureArg<'a> for ErrorCodeArg {
-  type Input = windows::ErrorCode;
-  type Output = windows::ErrorCode;
+  type Input = windows::HRESULT;
+  type Output = windows::HRESULT;
 
-  fn convert(input: windows::ErrorCode) -> windows::ErrorCode {
+  fn convert(input: windows::HRESULT) -> windows::HRESULT {
     input
   }
 }
@@ -118,7 +121,7 @@ impl<'a> ClosureArg<'a> for StringArg {
 
 pub type CompletedClosure<'a, Arg1, Arg2> = Box<
   dyn 'a
-    + FnOnce(<Arg1 as ClosureArg<'a>>::Output, <Arg2 as ClosureArg<'a>>::Output) -> windows::ErrorCode,
+    + FnOnce(<Arg1 as ClosureArg<'a>>::Output, <Arg2 as ClosureArg<'a>>::Output) -> windows::HRESULT,
 >;
 
 pub trait CompletedCallback<'a, T, Arg1, Arg2>: CallbackInterface<'a, T>
@@ -133,18 +136,18 @@ where
     this: windows::RawPtr,
     arg_1: Arg1::Input,
     arg_2: Arg2::Input,
-  ) -> windows::ErrorCode {
+  ) -> windows::HRESULT {
     let interface: *mut Self = mem::transmute(this);
     match (*interface).completed() {
       Some(completed) => completed(Arg1::convert(arg_1), Arg2::convert(arg_2)),
-      None => windows::ErrorCode::S_OK,
+      None => S_OK,
     }
   }
 }
 
 pub type EventClosure<'a, Arg1, Arg2> = Box<
   dyn 'a
-    + FnMut(<Arg1 as ClosureArg<'a>>::Output, <Arg2 as ClosureArg<'a>>::Output) -> windows::ErrorCode,
+    + FnMut(<Arg1 as ClosureArg<'a>>::Output, <Arg2 as ClosureArg<'a>>::Output) -> windows::HRESULT,
 >;
 
 pub trait EventCallback<'a, T, Arg1, Arg2>: CallbackInterface<'a, T>
@@ -159,7 +162,7 @@ where
     this: windows::RawPtr,
     arg_1: Arg1::Input,
     arg_2: Arg2::Input,
-  ) -> windows::ErrorCode {
+  ) -> windows::HRESULT {
     let interface: *mut Self = mem::transmute(this);
     ((*interface).event())(Arg1::convert(arg_1), Arg2::convert(arg_2))
   }

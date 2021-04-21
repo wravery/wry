@@ -8,8 +8,9 @@ use std::{
 use windows::{Abi, Interface};
 
 use bindings::{
+  constants::TARGET_COMPATIBLE_BROWSER,
   Microsoft::Web::WebView2,
-  Windows::Win32::SystemServices::{BOOL, PWSTR},
+  Windows::Win32::SystemServices::{BOOL, E_NOINTERFACE, E_POINTER, PWSTR, S_OK},
 };
 
 unsafe fn from_abi<I: Interface>(this: windows::RawPtr) -> windows::Result<I> {
@@ -56,7 +57,7 @@ impl EnvironmentOptions {
       refcount: AtomicU32::new(1),
       additional_browser_arguments: String::new(),
       language: String::new(),
-      target_compatible_browser: String::from("89.0.774.44"),
+      target_compatible_browser: String::from(TARGET_COMPATIBLE_BROWSER),
       allow_single_sign_on_using_os_primary_account: false,
     }
   }
@@ -65,17 +66,17 @@ impl EnvironmentOptions {
     this: windows::RawPtr,
     iid: &windows::Guid,
     interface: *mut windows::RawPtr,
-  ) -> windows::ErrorCode {
+  ) -> windows::HRESULT {
     if interface.is_null() {
-      windows::ErrorCode::E_POINTER
+      E_POINTER
     } else if *iid == windows::IUnknown::IID
       || *iid == WebView2::ICoreWebView2EnvironmentOptions::IID
     {
       Self::add_ref(this);
       *interface = this;
-      windows::ErrorCode::S_OK
+      S_OK
     } else {
-      windows::ErrorCode::E_NOINTERFACE
+      E_NOINTERFACE
     }
   }
 
@@ -98,72 +99,72 @@ impl EnvironmentOptions {
   unsafe extern "system" fn get_additional_browser_arguments(
     this: windows::RawPtr,
     value: *mut PWSTR,
-  ) -> windows::ErrorCode {
+  ) -> windows::HRESULT {
     let interface: *const Self = mem::transmute(this);
     *value = pwstr_from_str(&(*interface).additional_browser_arguments);
-    windows::ErrorCode::S_OK
+    S_OK
   }
 
   unsafe extern "system" fn put_additional_browser_arguments(
     this: windows::RawPtr,
     value: PWSTR,
-  ) -> windows::ErrorCode {
+  ) -> windows::HRESULT {
     let interface: *mut Self = mem::transmute(this);
     (*interface).additional_browser_arguments = string_from_pwstr(value);
-    windows::ErrorCode::S_OK
+    S_OK
   }
 
   unsafe extern "system" fn get_language(
     this: windows::RawPtr,
     value: *mut PWSTR,
-  ) -> windows::ErrorCode {
+  ) -> windows::HRESULT {
     let interface: *const Self = mem::transmute(this);
     *value = pwstr_from_str(&(*interface).language);
-    windows::ErrorCode::S_OK
+    S_OK
   }
 
   unsafe extern "system" fn put_language(
     this: windows::RawPtr,
     value: PWSTR,
-  ) -> windows::ErrorCode {
+  ) -> windows::HRESULT {
     let interface: *mut Self = mem::transmute(this);
     (*interface).language = string_from_pwstr(value);
-    windows::ErrorCode::S_OK
+    S_OK
   }
 
   unsafe extern "system" fn get_target_compatible_browser(
     this: windows::RawPtr,
     value: *mut PWSTR,
-  ) -> windows::ErrorCode {
+  ) -> windows::HRESULT {
     let interface: *const Self = mem::transmute(this);
     *value = pwstr_from_str(&(*interface).target_compatible_browser);
-    windows::ErrorCode::S_OK
+    S_OK
   }
 
   unsafe extern "system" fn put_target_compatible_browser(
     this: windows::RawPtr,
     value: PWSTR,
-  ) -> windows::ErrorCode {
+  ) -> windows::HRESULT {
     let interface: *mut Self = mem::transmute(this);
     (*interface).target_compatible_browser = string_from_pwstr(value);
-    windows::ErrorCode::S_OK
+    S_OK
   }
 
   unsafe extern "system" fn get_allow_single_sign_on_using_os_primary_account(
     this: windows::RawPtr,
     allow: *mut BOOL,
-  ) -> windows::ErrorCode {
+  ) -> windows::HRESULT {
     let interface: *const Self = mem::transmute(this);
     *allow = BOOL::from((*interface).allow_single_sign_on_using_os_primary_account);
-    windows::ErrorCode::S_OK
+    S_OK
   }
 
   unsafe extern "system" fn put_allow_single_sign_on_using_os_primary_account(
     this: windows::RawPtr,
     allow: BOOL,
-  ) -> windows::ErrorCode {
+  ) -> windows::HRESULT {
     let interface: *mut Self = mem::transmute(this);
     (*interface).allow_single_sign_on_using_os_primary_account = allow.as_bool();
-    windows::ErrorCode::S_OK
+    S_OK
   }
 }

@@ -4,7 +4,7 @@ use bindings::Windows::Win32::{
   Com::{self as com, DVASPECT, TYMED},
   DisplayDevices::POINTL,
   Shell::{self as shell, HDROP},
-  SystemServices::{self, BOOL, CLIPBOARD_FORMATS, PWSTR},
+  SystemServices::{self, BOOL, CLIPBOARD_FORMATS, E_NOINTERFACE, E_POINTER, PWSTR, S_OK},
   WindowsAndMessaging::{self, HWND, LPARAM},
 };
 
@@ -136,17 +136,17 @@ impl DropTarget {
     this: windows::RawPtr,
     iid: &windows::Guid,
     interface: *mut windows::RawPtr,
-  ) -> windows::ErrorCode {
+  ) -> windows::HRESULT {
     if interface.is_null() {
-      windows::ErrorCode::E_POINTER
+      E_POINTER
     } else {
       match *iid {
         windows::IUnknown::IID | com::IDropTarget::IID => {
           DropTarget::AddRef(this);
           *interface = this;
-          windows::ErrorCode::S_OK
+          S_OK
         }
-        _ => windows::ErrorCode::E_NOINTERFACE,
+        _ => E_NOINTERFACE,
       }
     }
   }
@@ -173,7 +173,7 @@ impl DropTarget {
     _grfKeyState: u32,
     _pt: POINTL,
     pdwEffect: *mut u32,
-  ) -> windows::ErrorCode {
+  ) -> windows::HRESULT {
     let mut paths = Vec::new();
 
     let drop_handler = Self::from_interface(this);
@@ -192,7 +192,7 @@ impl DropTarget {
       (drop_handler.listener)(FileDropEvent::Hovered(paths));
     }
 
-    windows::ErrorCode::S_OK
+    S_OK
   }
 
   pub unsafe extern "system" fn DragOver(
@@ -200,20 +200,20 @@ impl DropTarget {
     _grfKeyState: u32,
     _pt: POINTL,
     pdwEffect: *mut u32,
-  ) -> windows::ErrorCode {
+  ) -> windows::HRESULT {
     let drop_handler = Self::from_interface(this);
     *pdwEffect = drop_handler.cursor_effect;
 
-    windows::ErrorCode::S_OK
+    S_OK
   }
 
-  pub unsafe extern "system" fn DragLeave(this: windows::RawPtr) -> windows::ErrorCode {
+  pub unsafe extern "system" fn DragLeave(this: windows::RawPtr) -> windows::HRESULT {
     let drop_handler = Self::from_interface(this);
     if drop_handler.hovered_is_valid {
       (drop_handler.listener)(FileDropEvent::Cancelled);
     }
 
-    windows::ErrorCode::S_OK
+    S_OK
   }
 
   pub unsafe extern "system" fn Drop(
@@ -222,7 +222,7 @@ impl DropTarget {
     _grfKeyState: u32,
     _pt: POINTL,
     _pdwEffect: *mut u32,
-  ) -> windows::ErrorCode {
+  ) -> windows::HRESULT {
     let mut paths = Vec::new();
 
     let drop_handler = Self::from_interface(this);
@@ -236,7 +236,7 @@ impl DropTarget {
 
     (drop_handler.listener)(FileDropEvent::Dropped(paths));
 
-    windows::ErrorCode::S_OK
+    S_OK
   }
 
   unsafe fn from_interface<'a>(this: windows::RawPtr) -> &'a mut DropTarget {

@@ -1,5 +1,6 @@
 mod callback;
 mod environment_options;
+
 mod file_drop;
 
 use bindings::{
@@ -8,7 +9,7 @@ use bindings::{
     Com,
     DisplayDevices::RECT,
     Shell,
-    SystemServices::PWSTR,
+    SystemServices::{PWSTR, S_OK},
     WinRT::EventRegistrationToken,
     WindowsAndMessaging::{self, HWND},
   },
@@ -77,7 +78,7 @@ impl WV for InnerWebView {
             None => webview2::CreateCoreWebView2Environment(environmentcreatedhandler),
           }
         }),
-        Box::new(|error_code: windows::ErrorCode, environment: Option<webview2::ICoreWebView2Environment>| {
+        Box::new(|error_code: windows::HRESULT, environment: Option<webview2::ICoreWebView2Environment>| {
           if error_code.is_ok() {
             result = environment;
           }
@@ -105,7 +106,7 @@ impl WV for InnerWebView {
           },
         ),
         Box::new(
-          |error_code: windows::ErrorCode,
+          |error_code: windows::HRESULT,
            controller: Option<webview2::ICoreWebView2Controller>| {
             if error_code.is_ok() {
               result = controller;
@@ -167,7 +168,7 @@ impl WV for InnerWebView {
             handler,
           )
         }),
-        Box::new(|error_code: windows::ErrorCode, _id| error_code),
+        Box::new(|error_code: windows::HRESULT, _id| error_code),
       )?;
 
       for js in scripts {
@@ -217,7 +218,7 @@ impl WV for InnerWebView {
                   }
                 }
               }
-              windows::ErrorCode::S_OK
+              S_OK
             },
           ))?,
           &mut _token,
@@ -283,7 +284,7 @@ impl WV for InnerWebView {
                     }
                   }
                 }
-                windows::ErrorCode::S_OK
+                S_OK
               },
             ))?,
             &mut token,
@@ -304,7 +305,7 @@ impl WV for InnerWebView {
                 return args.put_State(webview2::COREWEBVIEW2_PERMISSION_STATE::COREWEBVIEW2_PERMISSION_STATE_ALLOW);
               }
             }
-            windows::ErrorCode::S_OK
+            S_OK
           },
         ))?,
         &mut token,
@@ -409,7 +410,7 @@ impl InnerWebView {
 /// results in `rx`, it will poll the [`EventLoop`] with [`EventLoopExtRunReturn::run_return`] and check for a
 /// result after each message is dispatched.
 unsafe fn wait_for_async_operation<'a, T, Arg1, Arg2>(
-  closure: Box<dyn FnOnce(<T as callback::Callback<'a>>::Interface) -> windows::ErrorCode>,
+  closure: Box<dyn FnOnce(<T as callback::Callback<'a>>::Interface) -> windows::HRESULT>,
   completed: callback::CompletedClosure<'a, Arg1, Arg2>,
 ) -> Result<()>
 where
@@ -421,7 +422,7 @@ where
   let completed = Box::new(move |arg_1, arg_2| {
     tx.send(completed(arg_1, arg_2))
       .expect("send over mpsc channel");
-    windows::ErrorCode::S_OK
+    S_OK
   });
   let callback = callback::create::<'a, T>(completed)?;
 
