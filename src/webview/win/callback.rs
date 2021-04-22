@@ -18,7 +18,7 @@ use bindings::{
   Windows::Win32::SystemServices::{E_NOINTERFACE, E_POINTER, PWSTR, S_OK},
 };
 
-use super::string_from_pwstr;
+use super::pwstr::string_from_pwstr;
 
 pub trait Callback<'a> {
   type Interface: 'a + Interface;

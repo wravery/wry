@@ -1,4 +1,4 @@
-use super::{pwstr_from_str, string_from_pwstr};
+use super::pwstr::{pwstr_from_str, string_from_pwstr};
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
