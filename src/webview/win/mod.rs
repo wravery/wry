@@ -70,7 +70,8 @@ impl WV for InnerWebView {
             webview2::CreateCoreWebView2EnvironmentWithOptions(
               "",
               user_data_path_provided.to_str().unwrap_or(""),
-              environment_options::create_options().map_or(None, |options| Some(options)),
+              environment_options::EnvironmentOptions::create()
+                .map_or(None, |options| Some(options)),
               environmentcreatedhandler,
             )
           },

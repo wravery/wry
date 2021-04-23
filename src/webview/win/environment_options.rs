@@ -1,7 +1,5 @@
 use super::pwstr::{pwstr_from_str, string_from_pwstr};
 
-use std::sync::atomic::{AtomicU32, Ordering};
-
 use windows::{Abi, Interface};
 
 use bindings::{
@@ -10,48 +8,49 @@ use bindings::{
   Windows::Win32::SystemServices::{BOOL, E_NOINTERFACE, E_POINTER, PWSTR, S_OK},
 };
 
-unsafe fn from_abi<I: Interface>(this: windows::RawPtr) -> windows::Result<I> {
-  let unknown = windows::IUnknown::from_abi(this)?;
-  unknown.vtable().1(unknown.abi()); // add_ref to balance the release called in IUnknown::drop
-  unknown.cast()
-}
-
-pub fn create_options() -> windows::Result<WebView2::ICoreWebView2EnvironmentOptions> {
-  let options = Box::new(EnvironmentOptions::new());
-  let options = unsafe { from_abi(Box::into_raw(options) as windows::RawPtr)? };
-  Ok(options)
-}
-
 #[repr(C)]
 pub struct EnvironmentOptions {
   vtable: *const WebView2::ICoreWebView2EnvironmentOptions_abi,
-  refcount: AtomicU32,
+  count: windows::RefCount,
   additional_browser_arguments: String,
   language: String,
   target_compatible_browser: String,
   allow_single_sign_on_using_os_primary_account: bool,
 }
 
+#[allow(non_snake_case)]
 impl EnvironmentOptions {
+  pub fn create() -> windows::Result<WebView2::ICoreWebView2EnvironmentOptions> {
+    let options = Box::new(Self::new());
+    let options = unsafe { Self::from_abi(Box::into_raw(options) as windows::RawPtr)? };
+    Ok(options)
+  }
+
+  unsafe fn from_abi(this: windows::RawPtr) -> windows::Result<WebView2::ICoreWebView2EnvironmentOptions> {
+    let unknown = windows::IUnknown::from_abi(this)?;
+    unknown.vtable().1(unknown.abi()); // add_ref to balance the release called in IUnknown::drop
+    unknown.cast()
+  }
+  
   fn new() -> Self {
     static VTABLE: WebView2::ICoreWebView2EnvironmentOptions_abi =
       WebView2::ICoreWebView2EnvironmentOptions_abi(
-        EnvironmentOptions::query_interface,
-        EnvironmentOptions::add_ref,
-        EnvironmentOptions::release,
-        EnvironmentOptions::get_additional_browser_arguments,
-        EnvironmentOptions::put_additional_browser_arguments,
-        EnvironmentOptions::get_language,
-        EnvironmentOptions::put_language,
-        EnvironmentOptions::get_target_compatible_browser,
-        EnvironmentOptions::put_target_compatible_browser,
-        EnvironmentOptions::get_allow_single_sign_on_using_os_primary_account,
-        EnvironmentOptions::put_allow_single_sign_on_using_os_primary_account,
+        EnvironmentOptions::QueryInterface,
+        EnvironmentOptions::AddRef,
+        EnvironmentOptions::Release,
+        EnvironmentOptions::get_AdditionalBrowserArguments,
+        EnvironmentOptions::put_AdditionalBrowserArguments,
+        EnvironmentOptions::get_Language,
+        EnvironmentOptions::put_Language,
+        EnvironmentOptions::get_TargetCompatibleBrowser,
+        EnvironmentOptions::put_TargetCompatibleBrowser,
+        EnvironmentOptions::get_AllowSingleSignOnUsingOSPrimaryAccount,
+        EnvironmentOptions::put_AllowSingleSignOnUsingOSPrimaryAccount,
       );
 
     Self {
       vtable: &VTABLE,
-      refcount: AtomicU32::new(1),
+      count: windows::RefCount::new(),
       additional_browser_arguments: String::new(),
       language: String::new(),
       target_compatible_browser: String::from(TARGET_COMPATIBLE_BROWSER),
@@ -59,7 +58,7 @@ impl EnvironmentOptions {
     }
   }
 
-  unsafe extern "system" fn query_interface(
+  unsafe extern "system" fn QueryInterface(
     this: windows::RawPtr,
     iid: &windows::Guid,
     interface: *mut windows::RawPtr,
@@ -69,7 +68,7 @@ impl EnvironmentOptions {
     } else if *iid == windows::IUnknown::IID
       || *iid == WebView2::ICoreWebView2EnvironmentOptions::IID
     {
-      Self::add_ref(this);
+      Self::AddRef(this);
       *interface = this;
       S_OK
     } else {
@@ -77,14 +76,14 @@ impl EnvironmentOptions {
     }
   }
 
-  unsafe extern "system" fn add_ref(this: windows::RawPtr) -> u32 {
+  unsafe extern "system" fn AddRef(this: windows::RawPtr) -> u32 {
     let interface = this as *mut Self;
-    (*interface).refcount.fetch_add(1, Ordering::Release) + 1
+    (*interface).count.add_ref()
   }
 
-  unsafe extern "system" fn release(this: windows::RawPtr) -> u32 {
+  unsafe extern "system" fn Release(this: windows::RawPtr) -> u32 {
     let interface = this as *mut Self;
-    let count = (*interface).refcount.fetch_sub(1, Ordering::Release) - 1;
+    let count = (*interface).count.release();
     if count == 0 {
       // Destroy the underlying data
       Box::from_raw(interface);
@@ -92,7 +91,7 @@ impl EnvironmentOptions {
     count
   }
 
-  unsafe extern "system" fn get_additional_browser_arguments(
+  unsafe extern "system" fn get_AdditionalBrowserArguments(
     this: windows::RawPtr,
     value: *mut PWSTR,
   ) -> windows::HRESULT {
@@ -101,7 +100,7 @@ impl EnvironmentOptions {
     S_OK
   }
 
-  unsafe extern "system" fn put_additional_browser_arguments(
+  unsafe extern "system" fn put_AdditionalBrowserArguments(
     this: windows::RawPtr,
     value: PWSTR,
   ) -> windows::HRESULT {
@@ -110,7 +109,7 @@ impl EnvironmentOptions {
     S_OK
   }
 
-  unsafe extern "system" fn get_language(
+  unsafe extern "system" fn get_Language(
     this: windows::RawPtr,
     value: *mut PWSTR,
   ) -> windows::HRESULT {
@@ -119,13 +118,13 @@ impl EnvironmentOptions {
     S_OK
   }
 
-  unsafe extern "system" fn put_language(this: windows::RawPtr, value: PWSTR) -> windows::HRESULT {
+  unsafe extern "system" fn put_Language(this: windows::RawPtr, value: PWSTR) -> windows::HRESULT {
     let interface = this as *mut Self;
     (*interface).language = string_from_pwstr(value);
     S_OK
   }
 
-  unsafe extern "system" fn get_target_compatible_browser(
+  unsafe extern "system" fn get_TargetCompatibleBrowser(
     this: windows::RawPtr,
     value: *mut PWSTR,
   ) -> windows::HRESULT {
@@ -134,7 +133,7 @@ impl EnvironmentOptions {
     S_OK
   }
 
-  unsafe extern "system" fn put_target_compatible_browser(
+  unsafe extern "system" fn put_TargetCompatibleBrowser(
     this: windows::RawPtr,
     value: PWSTR,
   ) -> windows::HRESULT {
@@ -143,7 +142,7 @@ impl EnvironmentOptions {
     S_OK
   }
 
-  unsafe extern "system" fn get_allow_single_sign_on_using_os_primary_account(
+  unsafe extern "system" fn get_AllowSingleSignOnUsingOSPrimaryAccount(
     this: windows::RawPtr,
     allow: *mut BOOL,
   ) -> windows::HRESULT {
@@ -152,7 +151,7 @@ impl EnvironmentOptions {
     S_OK
   }
 
-  unsafe extern "system" fn put_allow_single_sign_on_using_os_primary_account(
+  unsafe extern "system" fn put_AllowSingleSignOnUsingOSPrimaryAccount(
     this: windows::RawPtr,
     allow: BOOL,
   ) -> windows::HRESULT {

@@ -1,9 +1,6 @@
 use std::{
   marker::PhantomData,
-  sync::{
-    atomic::{AtomicU32, Ordering},
-    mpsc::{self, RecvError},
-  },
+  sync::mpsc::{self, RecvError},
 };
 
 use windows::{Abi, Interface};
@@ -27,10 +24,11 @@ pub trait Callback<'a> {
   fn create(closure: Self::Closure) -> windows::Result<Self::Interface>;
 }
 
+#[allow(non_snake_case)]
 pub trait CallbackInterface<'a, T: Callback<'a>>: Sized {
-  fn refcount(&self) -> &AtomicU32;
+  fn ref_count(&self) -> &windows::RefCount;
 
-  unsafe extern "system" fn query_interface(
+  unsafe extern "system" fn QueryInterface(
     this: windows::RawPtr,
     iid: &windows::Guid,
     interface: *mut windows::RawPtr,
@@ -40,7 +38,7 @@ pub trait CallbackInterface<'a, T: Callback<'a>>: Sized {
     } else if *iid == windows::IUnknown::IID
       || *iid == <<T as Callback>::Interface as Interface>::IID
     {
-      Self::add_ref(this);
+      Self::AddRef(this);
       *interface = this;
       S_OK
     } else {
@@ -48,15 +46,14 @@ pub trait CallbackInterface<'a, T: Callback<'a>>: Sized {
     }
   }
 
-  unsafe extern "system" fn add_ref(this: windows::RawPtr) -> u32 {
+  unsafe extern "system" fn AddRef(this: windows::RawPtr) -> u32 {
     let interface = this as *mut Self;
-    let count = (*interface).refcount().fetch_add(1, Ordering::Release) + 1;
-    count
+    (*interface).ref_count().add_ref()
   }
 
-  unsafe extern "system" fn release(this: windows::RawPtr) -> u32 {
+  unsafe extern "system" fn Release(this: windows::RawPtr) -> u32 {
     let interface = this as *mut Self;
-    let count = (*interface).refcount().fetch_sub(1, Ordering::Release) - 1;
+    let count = (*interface).ref_count().release();
     if count == 0 {
       // Destroy the underlying data
       Box::from_raw(interface);
@@ -125,6 +122,7 @@ pub type CompletedClosure<'a, Arg1, Arg2> = Box<
     + FnOnce(<Arg1 as ClosureArg<'a>>::Output, <Arg2 as ClosureArg<'a>>::Output) -> windows::HRESULT,
 >;
 
+#[allow(non_snake_case)]
 pub trait CompletedCallback<'a, T, Arg1, Arg2>: CallbackInterface<'a, T>
 where
   T: Callback<'a>,
@@ -133,7 +131,7 @@ where
 {
   fn completed(&mut self) -> Option<CompletedClosure<'a, Arg1, Arg2>>;
 
-  unsafe extern "system" fn invoke(
+  unsafe extern "system" fn Invoke(
     this: windows::RawPtr,
     arg_1: Arg1::Input,
     arg_2: Arg2::Input,
@@ -151,6 +149,7 @@ pub type EventClosure<'a, Arg1, Arg2> = Box<
     + FnMut(<Arg1 as ClosureArg<'a>>::Output, <Arg2 as ClosureArg<'a>>::Output) -> windows::HRESULT,
 >;
 
+#[allow(non_snake_case)]
 pub trait EventCallback<'a, T, Arg1, Arg2>: CallbackInterface<'a, T>
 where
   T: Callback<'a>,
@@ -159,7 +158,7 @@ where
 {
   fn event(&mut self) -> &mut EventClosure<'a, Arg1, Arg2>;
 
-  unsafe extern "system" fn invoke(
+  unsafe extern "system" fn Invoke(
     this: windows::RawPtr,
     arg_1: Arg1::Input,
     arg_2: Arg2::Input,

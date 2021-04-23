@@ -78,7 +78,7 @@ fn impl_completed_callback(ast: &CallbackStruct) -> TokenStream {
       #[repr(C)]
       #vis struct #name<'a> {
           vtable: *const #abi,
-          refcount: AtomicU32,
+          count: windows::RefCount,
           completed: Option<#closure<'a>>,
       }
 
@@ -97,15 +97,15 @@ fn impl_completed_callback(ast: &CallbackStruct) -> TokenStream {
 
           fn new(completed: #closure<'a>) -> Self {
               static VTABLE: #abi = #abi(
-                  #name::query_interface,
-                  #name::add_ref,
-                  #name::release,
-                  #name::invoke,
+                  #name::QueryInterface,
+                  #name::AddRef,
+                  #name::Release,
+                  #name::Invoke,
               );
 
               Self {
                  vtable: &VTABLE,
-                 refcount: AtomicU32::new(1),
+                 count: windows::RefCount::new(),
                  completed: Some(completed),
               }
           }
@@ -161,8 +161,8 @@ fn impl_completed_callback(ast: &CallbackStruct) -> TokenStream {
       }
 
       impl<'a> CallbackInterface<'a, #name<'a>> for #name<'a> {
-          fn refcount(&self) -> &AtomicU32 {
-              &self.refcount
+          fn ref_count(&self) -> &windows::RefCount {
+              &self.count
           }
       }
 
@@ -200,7 +200,7 @@ fn impl_event_callback(ast: &CallbackStruct) -> TokenStream {
       #[repr(C)]
       #vis struct #name<'a> {
           vtable: *const #abi,
-          refcount: AtomicU32,
+          count: windows::RefCount,
           event: #closure<'a>,
       }
 
@@ -219,15 +219,15 @@ fn impl_event_callback(ast: &CallbackStruct) -> TokenStream {
 
           fn new(event: #closure<'a>) -> Self {
               static VTABLE: #abi = #abi(
-                  #name::query_interface,
-                  #name::add_ref,
-                  #name::release,
-                  #name::invoke,
+                  #name::QueryInterface,
+                  #name::AddRef,
+                  #name::Release,
+                  #name::Invoke,
               );
 
               Self {
                   vtable: &VTABLE,
-                  refcount: AtomicU32::new(1),
+                  count: windows::RefCount::new(),
                   event,
               }
           }
@@ -243,8 +243,8 @@ fn impl_event_callback(ast: &CallbackStruct) -> TokenStream {
       }
 
       impl<'a> CallbackInterface<'a, #name<'a>> for #name<'a> {
-          fn refcount(&self) -> &AtomicU32 {
-              &self.refcount
+          fn ref_count(&self) -> &windows::RefCount {
+              &self.count
           }
       }
 

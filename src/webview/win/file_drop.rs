@@ -22,7 +22,6 @@ use std::{
   path::PathBuf,
   ptr,
   rc::Rc,
-  sync::atomic::{AtomicU32, Ordering},
 };
 
 pub(crate) struct FileDropController {
@@ -111,8 +110,8 @@ unsafe fn from_abi<I: Interface>(this: windows::RawPtr) -> windows::Result<I> {
 #[repr(C)]
 struct DropTarget {
   vtable: *const com::IDropTarget_abi,
+  count: windows::RefCount,
   listener: Rc<FileDropHandler>,
-  refcount: AtomicU32,
   window: HWND,
   cursor_effect: u32,
   hovered_is_valid: bool, /* If the currently hovered item is not valid there must not be any `HoveredFileCancelled` emitted */
@@ -121,10 +120,20 @@ struct DropTarget {
 #[allow(non_snake_case)]
 impl DropTarget {
   fn new(window: HWND, listener: Rc<FileDropHandler>) -> DropTarget {
+    static VTABLE: com::IDropTarget_abi = com::IDropTarget_abi(
+      DropTarget::QueryInterface,
+      DropTarget::AddRef,
+      DropTarget::Release,
+      DropTarget::DragEnter,
+      DropTarget::DragOver,
+      DropTarget::DragLeave,
+      DropTarget::Drop,
+    );
+
     DropTarget {
-      vtable: &DROP_TARGET_VTBL,
+      vtable: &VTABLE,
+      count: windows::RefCount::new(),
       listener,
-      refcount: AtomicU32::new(1),
       window,
       cursor_effect: com::DROPEFFECT_NONE,
       hovered_is_valid: false,
@@ -153,12 +162,12 @@ impl DropTarget {
 
   pub unsafe extern "system" fn AddRef(this: windows::RawPtr) -> u32 {
     let drop_target = Self::from_interface(this);
-    drop_target.refcount.fetch_add(1, Ordering::Release) + 1
+    drop_target.count.add_ref()
   }
 
   pub unsafe extern "system" fn Release(this: windows::RawPtr) -> u32 {
     let drop_target = Self::from_interface(this);
-    let count = drop_target.refcount.fetch_sub(1, Ordering::Release) - 1;
+    let count = drop_target.count.release();
     if count == 0 {
       // Destroy the underlying data
       Box::from_raw(drop_target);
@@ -293,13 +302,3 @@ impl DropTarget {
     }
   }
 }
-
-static DROP_TARGET_VTBL: com::IDropTarget_abi = com::IDropTarget_abi(
-  DropTarget::QueryInterface,
-  DropTarget::AddRef,
-  DropTarget::Release,
-  DropTarget::DragEnter,
-  DropTarget::DragOver,
-  DropTarget::DragLeave,
-  DropTarget::Drop,
-);
