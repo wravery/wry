@@ -52,6 +52,7 @@ impl Parse for CallbackStruct {
   }
 }
 
+/// Implement a `CompletedCallback` using the types specified as tuple struct fields.
 #[proc_macro_attribute]
 pub fn completed_callback(_attr: TokenStream, input: TokenStream) -> TokenStream {
   let ast = parse_macro_input!(input as CallbackStruct);
@@ -75,6 +76,7 @@ fn impl_completed_callback(ast: &CallbackStruct) -> TokenStream {
 
       type #closure<'a> = CompletedClosure<'a, #arg_1, #arg_2>;
 
+      /// Implementation of [`#interface`].
       #[repr(C)]
       #vis struct #name<'a> {
           vtable: *const #abi,
@@ -83,6 +85,7 @@ fn impl_completed_callback(ast: &CallbackStruct) -> TokenStream {
       }
 
       impl<'a> #name<'a> {
+          /// Factory method which returns a [`windows::Result<#interface>`] wrapped around a new instance of [`#name`]
           pub fn create(completed: #closure<'a>) -> windows::Result<#interface> {
               let handler = Box::new(Self::new(completed));
               let handler = unsafe { Self::from_abi(Box::into_raw(handler) as windows::RawPtr)? };
@@ -110,8 +113,8 @@ fn impl_completed_callback(ast: &CallbackStruct) -> TokenStream {
               }
           }
 
-          /// The WebView2 threading model runs everything on the UI thread, including callbacks which it triggers
-          /// with `PostMessage`, and we're using this here because it's waiting for some async operations in WebView2
+          /// The [`WebView2`] threading model runs everything on the UI thread, including callbacks which it triggers
+          /// with `PostMessage`, and we're using this here because it's waiting for some async operations in [`WebView2`]
           /// to finish before starting the main message loop in `EventLoop::run`. As long as there are no pending
           /// results in `rx`, it will poll the [`EventLoop`] with [`EventLoopExtRunReturn::run_return`] and check for a
           /// result after each message is dispatched.
@@ -125,7 +128,7 @@ fn impl_completed_callback(ast: &CallbackStruct) -> TokenStream {
                       .expect("send over mpsc channel");
                   S_OK
               });
-              let callback = <Self as Callback<'a>>::create(completed)?;
+              let callback = Self::create(completed)?;
 
               let error_code = closure(callback);
               if error_code.is_err() {
@@ -154,10 +157,6 @@ fn impl_completed_callback(ast: &CallbackStruct) -> TokenStream {
       impl<'a> Callback<'a> for #name<'a> {
           type Interface = #interface;
           type Closure = #closure<'a>;
-
-          fn create(completed: #closure<'a>) -> windows::Result<#interface> {
-            Self::create(completed)
-          }
       }
 
       impl<'a> CallbackInterface<'a, #name<'a>> for #name<'a> {
@@ -176,6 +175,7 @@ fn impl_completed_callback(ast: &CallbackStruct) -> TokenStream {
   gen.into()
 }
 
+/// Implement an `EventCallback` using the types specified as tuple struct fields.
 #[proc_macro_attribute]
 pub fn event_callback(_attr: TokenStream, input: TokenStream) -> TokenStream {
   let ast = parse_macro_input!(input as CallbackStruct);
@@ -197,6 +197,7 @@ fn impl_event_callback(ast: &CallbackStruct) -> TokenStream {
   let gen = quote! {
       type #closure<'a> = EventClosure<'a, #arg_1, #arg_2>;
 
+      /// Implementation of [`#interface`].
       #[repr(C)]
       #vis struct #name<'a> {
           vtable: *const #abi,
@@ -205,13 +206,14 @@ fn impl_event_callback(ast: &CallbackStruct) -> TokenStream {
       }
 
       impl<'a> #name<'a> {
-        pub fn create(event: #closure<'a>) -> windows::Result<#interface> {
-            let handler = Box::new(Self::new(event));
-            let handler = unsafe { Self::from_abi(Box::into_raw(handler) as windows::RawPtr)? };
-            Ok(handler)
-        }
+          /// Factory method which returns a [`windows::Result<#interface>`] wrapped around a new instance of [`#name`].
+          pub fn create(event: #closure<'a>) -> windows::Result<#interface> {
+              let handler = Box::new(Self::new(event));
+              let handler = unsafe { Self::from_abi(Box::into_raw(handler) as windows::RawPtr)? };
+              Ok(handler)
+          }
 
-        unsafe fn from_abi(this: windows::RawPtr) -> windows::Result<#interface> {
+          unsafe fn from_abi(this: windows::RawPtr) -> windows::Result<#interface> {
               let unknown = windows::IUnknown::from_abi(this)?;
               unknown.vtable().1(unknown.abi()); // add_ref to balance the release called in IUnknown::drop
               unknown.cast()
@@ -236,10 +238,6 @@ fn impl_event_callback(ast: &CallbackStruct) -> TokenStream {
       impl<'a> Callback<'a> for #name<'a> {
           type Interface = #interface;
           type Closure = #closure<'a>;
-
-          fn create(event: #closure<'a>) -> windows::Result<#interface> {
-              Self::create(event)
-          }
       }
 
       impl<'a> CallbackInterface<'a, #name<'a>> for #name<'a> {

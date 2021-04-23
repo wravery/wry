@@ -8,30 +8,43 @@ use bindings::{
   Windows::Win32::SystemServices::{BOOL, E_NOINTERFACE, E_POINTER, PWSTR, S_OK},
 };
 
+/// Implementation of the [`WebView2::ICoreWebView2EnvironmentOptions`] COM interface.
 #[repr(C)]
 pub struct EnvironmentOptions {
   vtable: *const WebView2::ICoreWebView2EnvironmentOptions_abi,
   count: windows::RefCount,
+  /// Storage for [`WebView2::ICoreWebView2EnvironmentOptions::get_AdditionalBrowserArguments`] and
+  /// [`WebView2::ICoreWebView2EnvironmentOptions::put_AdditionalBrowserArguments`].
   additional_browser_arguments: String,
+  /// Storage for [`WebView2::ICoreWebView2EnvironmentOptions::get_Language`] and
+  /// [`WebView2::ICoreWebView2EnvironmentOptions::put_Language`].
   language: String,
+  /// Storage for [`WebView2::ICoreWebView2EnvironmentOptions::get_TargetCompatibleBrowserVersion`] and
+  /// [`WebView2::ICoreWebView2EnvironmentOptions::put_TargetCompatibleBrowserVersion`].
   target_compatible_browser: String,
+  /// Storage for [`WebView2::ICoreWebView2EnvironmentOptions::get_AllowSingleSignOnUsingOSPrimaryAccount`]
+  /// and [`WebView2::ICoreWebView2EnvironmentOptions::put_AllowSingleSignOnUsingOSPrimaryAccount`].
   allow_single_sign_on_using_os_primary_account: bool,
 }
 
 #[allow(non_snake_case)]
 impl EnvironmentOptions {
+  /// Factory method which returns a [`windows::Result<WebView2::ICoreWebView2EnvironmentOptions>`] wrapped
+  /// around a new instance of [`EnvironmentOptions`].
   pub fn create() -> windows::Result<WebView2::ICoreWebView2EnvironmentOptions> {
     let options = Box::new(Self::new());
     let options = unsafe { Self::from_abi(Box::into_raw(options) as windows::RawPtr)? };
     Ok(options)
   }
 
-  unsafe fn from_abi(this: windows::RawPtr) -> windows::Result<WebView2::ICoreWebView2EnvironmentOptions> {
+  unsafe fn from_abi(
+    this: windows::RawPtr,
+  ) -> windows::Result<WebView2::ICoreWebView2EnvironmentOptions> {
     let unknown = windows::IUnknown::from_abi(this)?;
     unknown.vtable().1(unknown.abi()); // add_ref to balance the release called in IUnknown::drop
     unknown.cast()
   }
-  
+
   fn new() -> Self {
     static VTABLE: WebView2::ICoreWebView2EnvironmentOptions_abi =
       WebView2::ICoreWebView2EnvironmentOptions_abi(
@@ -42,8 +55,8 @@ impl EnvironmentOptions {
         EnvironmentOptions::put_AdditionalBrowserArguments,
         EnvironmentOptions::get_Language,
         EnvironmentOptions::put_Language,
-        EnvironmentOptions::get_TargetCompatibleBrowser,
-        EnvironmentOptions::put_TargetCompatibleBrowser,
+        EnvironmentOptions::get_TargetCompatibleBrowserVersion,
+        EnvironmentOptions::put_TargetCompatibleBrowserVersion,
         EnvironmentOptions::get_AllowSingleSignOnUsingOSPrimaryAccount,
         EnvironmentOptions::put_AllowSingleSignOnUsingOSPrimaryAccount,
       );
@@ -124,7 +137,7 @@ impl EnvironmentOptions {
     S_OK
   }
 
-  unsafe extern "system" fn get_TargetCompatibleBrowser(
+  unsafe extern "system" fn get_TargetCompatibleBrowserVersion(
     this: windows::RawPtr,
     value: *mut PWSTR,
   ) -> windows::HRESULT {
@@ -133,7 +146,7 @@ impl EnvironmentOptions {
     S_OK
   }
 
-  unsafe extern "system" fn put_TargetCompatibleBrowser(
+  unsafe extern "system" fn put_TargetCompatibleBrowserVersion(
     this: windows::RawPtr,
     value: PWSTR,
   ) -> windows::HRESULT {
