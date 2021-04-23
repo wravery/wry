@@ -158,6 +158,7 @@ mod webview2_nuget {
 
     const WEBVIEW2_DLL: &str = "WebView2Loader.dll";
     const WEBVIEW2_LIB: &str = "WebView2Loader.dll.lib";
+    const WEBVIEW2_STATIC: &str = "WebView2LoaderStatic.lib";
     const WEBVIEW2_TARGETS: &[&'static str] = &["arm64", "x64", "x86"];
 
     let mut native_dir = package_root;
@@ -168,9 +169,11 @@ mod webview2_nuget {
       dll_dest.push(target);
       fs::create_dir_all(dll_dest.as_path())?;
       let mut lib_dest = dll_dest.clone();
+      let mut static_dest = dll_dest.clone();
       let mut dll_src = native_dir.clone();
       dll_src.push(target);
       let mut lib_src = dll_src.clone();
+      let mut static_src = dll_src.clone();
       dll_dest.push(WEBVIEW2_DLL);
       dll_src.push(WEBVIEW2_DLL);
       eprintln!("Copy from {:?} -> {:?}", dll_src, dll_dest);
@@ -179,6 +182,10 @@ mod webview2_nuget {
       lib_src.push(WEBVIEW2_LIB);
       eprintln!("Copy from {:?} -> {:?}", lib_src, lib_dest);
       fs::copy(lib_src.as_path(), lib_dest.as_path())?;
+      static_dest.push(WEBVIEW2_STATIC);
+      static_src.push(WEBVIEW2_STATIC);
+      eprintln!("Copy from {:?} -> {:?}", static_src, static_dest);
+      fs::copy(static_src.as_path(), static_dest.as_path())?;
     }
 
     Ok(())
