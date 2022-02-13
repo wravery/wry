@@ -19,10 +19,7 @@ use windows::{
   core::Interface,
   Win32::{
     Foundation::{BOOL, E_FAIL, E_POINTER, HWND, POINT, PWSTR, RECT},
-    System::{
-      Com::{IStream, StructuredStorage::CreateStreamOnHGlobal},
-      WinRT::EventRegistrationToken,
-    },
+    System::{Com::IStream, WinRT::EventRegistrationToken},
     UI::WindowsAndMessaging::{
       self as win32wm, DestroyWindow, GetClientRect, GetCursorPos, WM_NCLBUTTONDOWN,
     },
@@ -413,19 +410,15 @@ window.addEventListener('mousemove', (e) => window.chrome.webview.postMessage('_
 
                       let mut body_sent = None;
                       if !content.is_empty() {
-                        let stream = CreateStreamOnHGlobal(0, true)?;
-                        stream.SetSize(content.len() as u64)?;
-                        if stream.Write(content.as_ptr() as *const _, content.len() as u32)?
-                          as usize
-                          == content.len()
-                        {
-                          body_sent = Some(stream);
-                        }
+                        body_sent = Some(
+                          tempfile_istream::Builder::new("wry")
+                            .with_content(&content)
+                            .build()?,
+                        );
                       }
 
                       // FIXME: Set http response version
 
-                      let body_sent = body_sent.map(|content| content.cast().unwrap());
                       let response =
                         env.CreateWebResourceResponse(body_sent, status_code, "OK", headers_map)?;
 
