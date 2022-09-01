@@ -1,5 +1,21 @@
 # Changelog
 
+## \[0.21.0]
+
+- Improve Android initialization script implementation.
+  - [1b26d60](https://github.com/tauri-apps/wry/commit/1b26d605d6e33f5417eb6566a7381d8feb239c8b) feat(android): improve initialization scripts implementation ([#670](https://github.com/tauri-apps/wry/pull/670)) on 2022-08-24
+- WRY will now generate the needed kotlin files at build time but you need to set `WRY_ANDROID_REVERSED_DOMAIN`, `WRY_ANDROID_APP_NAME_SNAKE_CASE` and `WRY_ANDROID_KOTLIN_FILES_OUT_DIR` env vars.
+  - [b478903](https://github.com/tauri-apps/wry/commit/b4789034dc4d10ab83f6acce6b4152d79f702940) feat(android): generate kotlin files at build time ([#671](https://github.com/tauri-apps/wry/pull/671)) on 2022-08-24
+  - [103f255](https://github.com/tauri-apps/wry/commit/103f255903bdf728bf5124fb323293d172c8dd12) chore: change bump to patch on 2022-08-25
+- **Breaking change** Removed `WebView::focus`.
+  - [f338df7](https://github.com/tauri-apps/wry/commit/f338df7a2716cbbde357b81d9baa108ce679eaa5) feat(windows): auto-focus the webview ([#676](https://github.com/tauri-apps/wry/pull/676)) on 2022-08-27
+- Added the `RustWebView` class on Android.
+  - [b1e8560](https://github.com/tauri-apps/wry/commit/b1e8560c3f13f2674528f6ca440ba476ddbef7c2) feat(android): define WebView class in kotlin ([#672](https://github.com/tauri-apps/wry/pull/672)) on 2022-08-24
+- Update the `windows` crate to the latest 0.39.0 release and `webview2-com` to 0.19.1 to match.
+  - [c7d7e1f](https://github.com/tauri-apps/wry/commit/c7d7e1f9c85a5db9c98aa5ded1e0eaf7fe697817) Update windows to 0.39.0 and webview2-com to 0.19.1 to match ([#679](https://github.com/tauri-apps/wry/pull/679)) on 2022-08-31
+- On Windows, automatically focus the webview when the window gains focus to match other platforms.
+  - [f338df7](https://github.com/tauri-apps/wry/commit/f338df7a2716cbbde357b81d9baa108ce679eaa5) feat(windows): auto-focus the webview ([#676](https://github.com/tauri-apps/wry/pull/676)) on 2022-08-27
+
 ## \[0.20.2]
 
 - Implement custom protocol on Android.
