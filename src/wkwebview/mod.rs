@@ -135,6 +135,9 @@ pub(crate) struct InnerWebView {
   // We need this the keep the reference count
   ui_delegate: Retained<WryWebViewUIDelegate>,
   protocol_ptrs: Vec<*mut Box<dyn Fn(crate::WebViewId, Request<Vec<u8>>, RequestAsyncResponder)>>,
+  #[cfg(target_os = "macos")]
+  // We need this to update the traffic light inset
+  parent_view: Option<Retained<WryWebViewParent>>,
 }
 
 impl InnerWebView {
@@ -459,7 +462,7 @@ impl InnerWebView {
         }
       }
 
-      let w = Self {
+      let mut w = Self {
         id: webview_id,
         webview: webview.clone(),
         manager: manager.clone(),
@@ -473,6 +476,8 @@ impl InnerWebView {
         ui_delegate,
         protocol_ptrs,
         is_child,
+        #[cfg(target_os = "macos")]
+        parent_view: None,
       };
 
       // Initialize scripts
@@ -504,19 +509,27 @@ r#"Object.defineProperty(window, 'ipc', {
         if is_child {
           ns_view.addSubview(&webview);
         } else {
+          // inject the webview into the window
+          let ns_window = ns_view.window().unwrap();
+
           let parent_view = WryWebViewParent::new(mtm);
+
+          if let Some(position) = pl_attrs.traffic_light_inset {
+            parent_view.set_traffic_light_inset(&ns_window, position);
+          }
+
           parent_view.setAutoresizingMask(
             NSAutoresizingMaskOptions::NSViewHeightSizable
               | NSAutoresizingMaskOptions::NSViewWidthSizable,
           );
           parent_view.addSubview(&webview.clone());
 
-          // inject the webview into the window
-          let ns_window = ns_view.window().unwrap();
           // Tell the webview receive keyboard events in the window.
           // See https://github.com/tauri-apps/wry/issues/739
           ns_window.setContentView(Some(&parent_view));
           ns_window.makeFirstResponder(Some(&webview));
+
+          w.parent_view = Some(parent_view);
         }
 
         // make sure the window is always on top when we create a new webview
@@ -884,7 +897,7 @@ r#"Object.defineProperty(window, 'ipc', {
             (secure && url.scheme() == "https") ||
             // or cookie is secure and is localhost
             (
-              secure && url.scheme() == "http" && 
+              secure && url.scheme() == "http" &&
               (url.domain() == Some("localhost") || url.domain().and_then(|d| Ipv4Addr::from_str(d).ok()).map(|ip| ip.is_loopback()).unwrap_or(false))
             ) ||
             // or cookie is not secure
@@ -922,6 +935,15 @@ r#"Object.defineProperty(window, 'ipc', {
     unsafe {
       let content_view = (*window).contentView().unwrap();
       content_view.addSubview(&self.webview);
+    }
+
+    Ok(())
+  }
+
+  #[cfg(target_os = "macos")]
+  pub(crate) fn set_traffic_light_inset(&self, position: dpi::Position) -> crate::Result<()> {
+    if let Some(parent_view) = &self.parent_view {
+      parent_view.set_traffic_light_inset(&self.webview.window().unwrap(), position);
     }
 
     Ok(())
